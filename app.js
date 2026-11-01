@@ -8,7 +8,7 @@
 
   // Logo tile: real logo if we have one, otherwise a coloured letter.
   // Services with no bundled logo: fetch their website icon instead (falls back to a letter).
-  const SITES = { "boomplay": "boomplay.com", "google one": "one.google.com", "dstv": "dstv.com", "gotv": "gotvafrica.com", "showmax": "showmax.com", "deezer": "deezer.com", "hulu": "hulu.com", "disney": "disneyplus.com", "disney hotstar": "hotstar.com", "hotstar": "hotstar.com", "microsoft 365": "microsoft.com", "office 365": "microsoft.com", "onedrive": "onedrive.live.com", "masterclass": "masterclass.com", "xbox": "xbox.com", "midjourney": "midjourney.com", "startimes": "startimestv.com", "kiosk": "kiosk.ng" };
+  const SITES = { "boomplay": "boomplay.com", "google one": "one.google.com", "dstv": "dstv.com", "gotv": "gotvafrica.com", "showmax": "showmax.com", "deezer": "deezer.com", "hulu": "hulu.com", "disney": "disneyplus.com", "disney hotstar": "hotstar.com", "hotstar": "hotstar.com", "microsoft 365": "microsoft.com", "office 365": "microsoft.com", "onedrive": "onedrive.live.com", "masterclass": "masterclass.com", "xbox": "xbox.com", "midjourney": "midjourney.com", "startimes": "startimestv.com", "kiosk": "kiosk.ng", "capcut": "capcut.com", "picsart": "picsart.com", "remini": "remini.ai", "truecaller": "truecaller.com", "capcut": "capcut.com", "inshot": "inshot.com", "picsart": "picsart.com", "tiktok": "tiktok.com", "snapchat": "snapchat.com", "truecaller": "truecaller.com", "vsco": "vsco.co", "lightroom": "adobe.com", "bolt": "bolt.eu", "uber": "uber.com" };
   function logoHtml(name) {
     const n = " " + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\b0ne\b/g, "one").trim() + " ";
     const aliases = window.LOGO_ALIASES || {}, logos = window.LOGOS || {};
@@ -17,7 +17,7 @@
     const L = best && logos[aliases[best]];
     if (L) return `<span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#${L[0]}" d="${L[1]}"/></svg></span>`;
     let h = 0; for (const c of String(name || "?")) h = (h * 31 + c.charCodeAt(0)) % 360;
-    const letter = (String(name || "?").trim()[0] || "?").toUpperCase();
+    const letter = ((String(name || "").match(/[A-Za-z0-9]/) || ["?"])[0]).toUpperCase();
     const tile = `background:hsl(${h} 45% 88%);color:hsl(${h} 45% 25%)`;
     let site = null;
     for (const k in SITES) if (n.includes(" " + k + " ") && (!site || k.length > site.length)) site = k;
@@ -156,7 +156,7 @@
       return;
     }
     ev.target.value = "";
-    let raw = "", aiOk = false;
+    let raw = "", aiOk = false, aiErr = "";
     if (cfg.scanApi) {
       try {
         const parts = [];
@@ -168,8 +168,8 @@
         raw = parts.join("\n\n"); aiOk = true;
         Parser.markDuplicates(draft, Store.load());
       } catch (err) {
-        console.error(err); draft = [];
-        setMsg(`The AI reader didn’t respond (${errText(err)}). Using the basic reader instead…`, true);
+        console.error(err); draft = []; aiErr = errText(err);
+        setMsg(`The AI reader didn’t respond (${aiErr}). Using the basic reader instead…`, true);
       }
     }
     if (!aiOk) {
@@ -217,13 +217,13 @@
       return;
     }
     }
-    $("raw").textContent = raw || "(nothing readable found)";
+    $("raw").textContent = (aiOk ? "[Read by: AI reader]\n" : cfg.scanApi ? "[Read by: basic reader — AI reader error: " + aiErr + "]\n" : "[Read by: basic reader]\n") + (raw || "(nothing readable found)");
     if (!draft.length) {
       setMsg("The text was read, but no subscriptions were found in it. Open “What we read” below to see what the reader saw.", true);
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
       return;
     }
-    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""}. Check each one before saving.`);
+    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""} (${aiOk ? "AI reader" : "basic reader" + (aiErr ? "; AI reader failed: " + aiErr : "")}). Check each one before saving.`, !aiOk && !!aiErr);
     $("save-row").classList.remove("hide"); $("review-wrap").classList.remove("hide"); renderReview();
   });
 

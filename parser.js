@@ -2,7 +2,7 @@
 // Works with different layouts (Google Play, App Store / Apple, bank alerts, receipts, plain lists).
 // Rule: if something isn't clearly in the text, leave it empty and say so.
 (function (root) {
-  const SERVICES = ["Netflix","Spotify","YouTube Premium","YouTube Music","YouTube","Apple Music","Apple TV+","Apple Arcade","iCloud+","iCloud","Apple One","Google One","Google Play Pass","Canva Pro","Canva","Adobe Creative Cloud","Adobe","Microsoft 365","Office 365","Disney+","Disney Plus","Disney Hotstar","Hotstar","Amazon Prime","Prime Video","Amazon Music","Showmax","DStv","GOtv","StarTimes","Dropbox","ChatGPT Plus","ChatGPT","OpenAI","Claude Pro","Claude","Gemini","Notion","Zoom","Slack","Audiomack","Boomplay","LinkedIn Premium","LinkedIn","Duolingo","Figma","GitHub","Deezer","Tidal","SoundCloud","HBO Max","Hulu","Paramount+","Crunchyroll","Grammarly","OneDrive","NordVPN","ExpressVPN","Surfshark","ProtonVPN","Proton","Coursera","Udemy","Skillshare","MasterClass","Headspace","Strava","Telegram Premium","Xbox Game Pass","PlayStation Plus","Twitch","Patreon","Substack","Medium","Tinder","Bumble","Evernote","Todoist","Bitwarden","1Password","Midjourney","Perplexity","Squarespace","Wix","Shopify","Mailchimp","Zapier","Trello","Asana","Cursor","X Premium"];
+  const SERVICES = ["Netflix","Spotify","CapCut","Picsart","Remini","Truecaller","YouTube Premium","YouTube Music","YouTube","Apple Music","Apple TV+","Apple Arcade","iCloud+","iCloud","Apple One","Google One","Google Play Pass","Canva Pro","Canva","Adobe Creative Cloud","Adobe","Microsoft 365","Office 365","Disney+","Disney Plus","Disney Hotstar","Hotstar","Amazon Prime","Prime Video","Amazon Music","Showmax","DStv","GOtv","StarTimes","Dropbox","ChatGPT Plus","ChatGPT","OpenAI","Claude Pro","Claude","Gemini","Notion","Zoom","Slack","Audiomack","Boomplay","LinkedIn Premium","LinkedIn","Duolingo","Figma","GitHub","Deezer","Tidal","SoundCloud","HBO Max","Hulu","Paramount+","Crunchyroll","Grammarly","OneDrive","NordVPN","ExpressVPN","Surfshark","ProtonVPN","Proton","Coursera","Udemy","Skillshare","MasterClass","Headspace","Strava","Telegram Premium","Xbox Game Pass","PlayStation Plus","Twitch","Patreon","Substack","Medium","Tinder","Bumble","Evernote","Todoist","Bitwarden","1Password","Midjourney","Perplexity","Squarespace","Wix","Shopify","Mailchimp","Zapier","Trello","Asana","Cursor","X Premium"];
   const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const SVC = SERVICES.slice().sort((a, b) => b.length - a.length)
     .map(n => ({ n, re: new RegExp("(^|[^a-z0-9])" + esc(n) + "($|[^a-z0-9])", "i"), solo: /^[A-Za-z]{7,}$/.test(n) ? n.toLowerCase() : null }));
@@ -123,9 +123,10 @@
   const PAST_RE = /\b(debit|debited|paid|charged|purchase|receipt|transaction|successful|payment of)\b/i;
   const SECTION_RE = /^(active|expired|inactive|cancelled|canceled)(\s+subscriptions?)?:?$/i;
   const EXPIRED_RE = /\bexpired\b|\bended\b/i;
-  const NOISE = /^(subscriptions?|manage|payments?|payment methods?|billing|renews?|renewal|expires?|expired|cancel|cancelled|canceled|active|inactive|settings|google play|app store|apple id|account|total|price|amount|date|next|due|history|order|receipt|transactions?|status|monthly|yearly|weekly|quarterly|auto|edit|done|back|search|today|yesterday|more|view|see all|help|free trial|family sharing|bank|debit|credit|card|visa|mastercard|verve|balance|alert|your|you|the)\b/i;
+  const NOISE = /^(subscriptions?|manage|payments?|payment methods?|billing|renews?|renewal|expires?|expired|cancel|cancelled|canceled|active|inactive|settings|google play|app store|apple id|account|total|price|amount|date|next|due|history|order|receipt|transactions?|status|monthly|yearly|weekly|quarterly|auto|edit|done|back|search|today|yesterday|more|view|see all|help|free trial|alerts?|resubscribe|primary|backup|not available|your subscription|family sharing|bank|debit|credit|card|visa|mastercard|verve|balance|alert|your|you|the|resubscribe|alerts?|primary|backup|not available|manage|payment method|verve)\b/i;
 
-  const clean = l => l.replace(/[|•·›>]+/g, " ").replace(/\s+/g, " ").trim();
+  const shortName = n => { const t = n.split(/\s*[:\u2013\u2014|]\s+|\s+-\s+/)[0].trim(); return t.length >= 2 ? t : n; };
+  const clean = l => l.replace(/[|•·›>]+/g, " ").replace(/\s+/g, " ").trim().replace(/^[^A-Za-z0-9₦$€£₹#+]+/, "").replace(/^[€£$#₦₹]\s+(?=[A-Za-z])/, "").trim();
 
   const onlyPlanWords = l => { const w = l.toLowerCase().match(/[a-z]+/g) || []; return w.length > 0 && w.every(x => PLAN_SET.has(x)); };
   function looksLikeName(line) {
@@ -179,6 +180,14 @@
     return e;
   }
 
+  function pickName(b) {
+    const L = b.lines, ok = i => i >= 0 && i < L.length && looksLikeName(L[i]);
+    const fmt = l => shortName(l.replace(/[^A-Za-z0-9+&.' :|-]+/g, "").trim());
+    for (let i = 0; i < L.length - 1; i++) if (ok(i) && onlyPlanWords(L[i + 1])) return fmt(L[i]);
+    for (let i = 0; i < L.length; i++) if (ok(i)) return fmt(L[i]);
+    return b.name;
+  }
+
   function parse(text) {
     const lines = String(text || "").split(/\r?\n/).map(clean).filter(l => l.length > 1);
     const blocks = [];
@@ -186,6 +195,8 @@
     const push = () => { if (cur) { cur.section = cur.section == null ? section : cur.section; blocks.push(cur); } cur = null; };
     for (const line of lines) {
       const sm = line.match(SECTION_RE);
+      // A lone "Cancelled" under an app that has no price/date yet is that app's status, not a section heading.
+      if (sm && cur && !cur.hasAmt && !cur.lines.some(l => findDate(l))) { cur.lines.push(line); continue; }
       if (sm) { push(); const k = sm[1].toLowerCase(); section = k === "expired" || k === "inactive" ? "expired" : k === "active" ? "" : "cancelled"; continue; }
       const svc = findService(line);
       const amts = findAmounts(line);
@@ -198,19 +209,19 @@
         else {
           // Unknown app with the price on the same line: "Some App  ₦2,500/month"
           const prefix = clean(line.slice(0, amts[0].at + (/^[^A-Za-z]/.test(line.slice(amts[0].at)) ? 1 : 0)).replace(/[^A-Za-z0-9+&.' -]+$/, ""));
-          if (looksLikeName(prefix)) { push(); cur = { name: prefix, known: false, lines: [line], hasAmt: true }; }
+          if (looksLikeName(prefix)) { push(); cur = { name: shortName(prefix), known: false, fixed: true, lines: [line], hasAmt: true }; }
           else if (cur && cur.lines.length < 10) cur.lines.push(line);
         }
       } else if (looksLikeName(line)) {
-        if (cur && !cur.hasAmt && cur.lines.length < 3) cur.lines.push(line);
-        else { push(); cur = { name: line.replace(/[^A-Za-z0-9+&.' -]+/g, "").trim(), known: false, lines: [line] }; }
+        if (cur && !cur.hasAmt && !cur.lines.some(l => findDate(l)) && cur.lines.length < 10) cur.lines.push(line);
+        else { push(); cur = { name: shortName(line.replace(/[^A-Za-z0-9+&.' :|-]+/g, "").trim()), known: false, lines: [line] }; }
       } else if (cur && cur.lines.length < 10) cur.lines.push(line);
     }
     push();
     // Names we don't recognise only count if there's a price or a date with them.
     return blocks
       .filter(b => b.hasAmt || b.lines.some(l => findDate(l)))
-      .map(b => buildEntry(b.name, b.lines, b.section));
+      .map(b => buildEntry(b.known || b.fixed ? b.name : pickName(b), b.lines, b.section));
   }
 
   // ---------- Duplicates ----------
