@@ -53,6 +53,8 @@ footer{margin-top:48px;color:var(--mute);font-size:13px}
 .warn{margin:0;font-size:13px;color:var(--coral)}.bad{color:var(--coral)}
 details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--line)}
 .filebtn{position:relative}.filebtn input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+.logo{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none}
+.logo.letter{border:0;font:800 18px var(--head)}
 </style>
 </head>
 <body>
@@ -106,11 +108,12 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   </div>
 </main>
 
-<footer><span data-app-name></span> · <span data-tagline></span></footer>
+<footer><span data-app-name></span> · <span data-tagline></span><br>Logos belong to their respective owners. This app is not affiliated with them.</footer>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="config.js"></script>
+<script src="logos.js"></script>
 <script src="parser.js"></script>
 <script src="store.js"></script>
 <script src="app.js"></script>
