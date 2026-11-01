@@ -58,24 +58,43 @@
 
   function setMsg(t, bad) { const m = $("scan-msg"); m.textContent = t; m.className = "note" + (bad ? " bad" : ""); }
 
+  const errText = err => (err && err.message) ? err.message : (typeof err === "string" ? err : JSON.stringify(err) || "unknown error");
+
   $("file").addEventListener("change", async ev => {
     const files = Array.from(ev.target.files); ev.target.value = "";
     if (!files.length) return;
     const bad = files.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
     if (bad) { setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
     if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
-    $("review-wrap").classList.add("hide"); draft = []; let raw = "";
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setMsg(`Reading image ${i + 1} of ${files.length}… 0%`);
+    $("review-wrap").classList.add("hide"); draft = [];
+    const texts = [];
+    for (let i = 0; i < files.length; i++) {
+      setMsg(`Reading image ${i + 1} of ${files.length}… (the first time can take a minute)`);
+      try {
         const res = await Tesseract.recognize(files[i], "eng", { logger: m => { if (m.status === "recognizing text") setMsg(`Reading image ${i + 1} of ${files.length}… ${Math.round(m.progress * 100)}%`); } });
-        raw += res.data.text + "\n\n";
-        draft = draft.concat(Parser.parse(res.data.text));
+        texts.push(res.data.text || "");
+      } catch (err) {
+        console.error(err);
+        setMsg(`The text reader failed on “${files[i].name}”: ${errText(err)}. Check your internet connection and try again.`, true);
+        return;
       }
-    } catch (err) { setMsg("Something went wrong while reading the image. Try a clearer screenshot.", true); return; }
-    $("raw").textContent = raw.trim() || "(nothing readable found)";
-    if (!draft.length) { setMsg("No subscriptions found. Check “What we read” below, or try a clearer screenshot.", true); $("review-wrap").classList.remove("hide"); $("review").innerHTML = ""; $("save-row").classList.add("hide"); return; }
-    Parser.markDuplicates(draft, Store.load());
+    }
+    const raw = texts.join("\n\n").trim();
+    $("raw").textContent = raw || "(nothing readable found)";
+    try {
+      texts.forEach(t => { draft = draft.concat(Parser.parse(t)); });
+      Parser.markDuplicates(draft, Store.load());
+    } catch (err) {
+      console.error(err); draft = [];
+      setMsg(`The text was read but couldn’t be sorted into subscriptions: ${errText(err)}. Open “What we read” below and send it to me.`, true);
+      $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
+      return;
+    }
+    if (!draft.length) {
+      setMsg("The text was read, but no subscriptions were found in it. Open “What we read” below to see what the reader saw.", true);
+      $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
+      return;
+    }
     setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""}. Check each one before saving.`);
     $("save-row").classList.remove("hide"); $("review-wrap").classList.remove("hide"); renderReview();
   });
@@ -123,7 +142,6 @@
     const h = (location.hash || "#home").slice(1), page = ["home", "dashboard", "scan"].includes(h) ? h : "home";
     ["home", "dashboard", "scan"].forEach(p => $(p).classList.toggle("hide", p !== page));
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
-    if (page !== "scan") { /* images are never stored: nothing to clean up */ }
     renderAll(); window.scrollTo(0, 0);
   }
   addEventListener("hashchange", route); route();
