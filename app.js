@@ -5,6 +5,20 @@
   document.querySelectorAll("[data-app-name]").forEach(e => e.textContent = cfg.name);
   document.querySelectorAll("[data-tagline]").forEach(e => e.textContent = cfg.tagline);
 
+
+  // Logo tile: real logo if we have one, otherwise a coloured letter.
+  function logoHtml(name) {
+    const n = " " + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+    const aliases = window.LOGO_ALIASES || {}, logos = window.LOGOS || {};
+    let best = null;
+    for (const k in aliases) if (n.includes(" " + k + " ") && (!best || k.length > best.length)) best = k;
+    const L = best && logos[aliases[best]];
+    if (L) return `<span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#${L[0]}" d="${L[1]}"/></svg></span>`;
+    let h = 0; for (const c of String(name || "?")) h = (h * 31 + c.charCodeAt(0)) % 360;
+    const letter = (String(name || "?").trim()[0] || "?").toUpperCase();
+    return `<span class="logo letter" aria-hidden="true" style="background:hsl(${h} 45% 88%);color:hsl(${h} 45% 25%)">${esc(letter)}</span>`;
+  }
+
   const money = (n, c) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: c || cfg.defaultCurrency, maximumFractionDigits: 2 }).format(n); } catch (e) { return (c || "") + " " + n; } };
   const PER = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
   const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
@@ -25,7 +39,7 @@
       else { const n = daysTo(s.date); chip = n < 0 ? `<span class="chip late">Date passed</span>` : `<span class="chip ${n <= 3 ? "late" : n > 14 ? "far" : ""}">in ${n} day${n === 1 ? "" : "s"}</span>`; }
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
       const sub = [s.plan, s.freq].filter(Boolean).map(esc).join(" · ");
-      return `<div class="row"><div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small></div>
+      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small></div>
         <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
   }
@@ -145,6 +159,19 @@
     });
     if (!Store.save(existing.concat(toSave))) { setMsg("Couldn’t save on this device. Check that browser storage is allowed.", true); return; }
     draft = []; $("review-wrap").classList.add("hide"); setMsg("");
+    location.hash = "#dashboard";
+  });
+
+  // ---------- Pages ----------
+  function route() {
+    const h = (location.hash || "#home").slice(1), page = ["home", "dashboard", "scan"].includes(h) ? h : "home";
+    ["home", "dashboard", "scan"].forEach(p => $(p).classList.toggle("hide", p !== page));
+    const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
+    if (page !== "scan") { /* images are never stored: nothing to clean up */ }
+    renderAll(); window.scrollTo(0, 0);
+  }
+  addEventListener("hashchange", route); route();
+})();    draft = []; $("review-wrap").classList.add("hide"); setMsg("");
     location.hash = "#dashboard";
   });
 
