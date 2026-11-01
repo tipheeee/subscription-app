@@ -7,8 +7,10 @@
 
 
   // Logo tile: real logo if we have one, otherwise a coloured letter.
+  // Services with no bundled logo: fetch their website icon instead (falls back to a letter).
+  const SITES = { "boomplay": "boomplay.com", "google one": "one.google.com", "dstv": "dstv.com", "gotv": "gotvafrica.com", "showmax": "showmax.com", "deezer": "deezer.com", "hulu": "hulu.com", "disney": "disneyplus.com", "disney hotstar": "hotstar.com", "hotstar": "hotstar.com", "microsoft 365": "microsoft.com", "office 365": "microsoft.com", "onedrive": "onedrive.live.com", "masterclass": "masterclass.com", "xbox": "xbox.com", "midjourney": "midjourney.com", "startimes": "startimestv.com", "kiosk": "kiosk.ng" };
   function logoHtml(name) {
-    const n = " " + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+    const n = " " + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\b0ne\b/g, "one").trim() + " ";
     const aliases = window.LOGO_ALIASES || {}, logos = window.LOGOS || {};
     let best = null;
     for (const k in aliases) if (n.includes(" " + k + " ") && (!best || k.length > best.length)) best = k;
@@ -16,7 +18,11 @@
     if (L) return `<span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="#${L[0]}" d="${L[1]}"/></svg></span>`;
     let h = 0; for (const c of String(name || "?")) h = (h * 31 + c.charCodeAt(0)) % 360;
     const letter = (String(name || "?").trim()[0] || "?").toUpperCase();
-    return `<span class="logo letter" aria-hidden="true" style="background:hsl(${h} 45% 88%);color:hsl(${h} 45% 25%)">${esc(letter)}</span>`;
+    const tile = `background:hsl(${h} 45% 88%);color:hsl(${h} 45% 25%)`;
+    let site = null;
+    for (const k in SITES) if (n.includes(" " + k + " ") && (!site || k.length > site.length)) site = k;
+    if (site) return `<span class="logo" aria-hidden="true" data-l="${esc(letter)}" data-s="${esc(tile)}"><img alt="" width="28" height="28" src="https://www.google.com/s2/favicons?domain=${SITES[site]}&sz=64" onerror="var p=this.parentNode;p.className='logo letter';p.style.cssText=p.dataset.s;p.textContent=p.dataset.l"></span>`;
+    return `<span class="logo letter" aria-hidden="true" style="${tile}">${esc(letter)}</span>`;
   }
 
   const money = (n, c) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: c || cfg.defaultCurrency, maximumFractionDigits: 2 }).format(n); } catch (e) { return (c || "") + " " + n; } };
@@ -67,6 +73,7 @@
   });
 
   // ---------- Scanner ----------
+  const STATS = ["active", "cancelled", "expired"];
   let draft = [];
   const OK_TYPES = ["image/png", "image/jpeg", "image/webp"], MAX_MB = 10;
 
@@ -102,12 +109,41 @@
     } catch (e) { console.warn("prepare failed, using original", e); return blob; }
   }
 
+  // ---------- AI reader (optional: set scanApi in config.js) ----------
+  async function shrink(blob) {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+  }
+  const isoOk = v => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v + "T00:00:00Z"));
+  function toEntry(s) {
+    const notes = Array.isArray(s.notes) ? s.notes.filter(n => typeof n === "string" && n).slice(0, 3) : [];
+    const amount = typeof s.amount === "number" && s.amount > 0 ? s.amount : null;
+    let currency = typeof s.currency === "string" ? s.currency.trim().toUpperCase().slice(0, 3) : "";
+    if (amount != null && !currency) { currency = cfg.defaultCurrency; notes.push("No currency was shown — assumed " + currency + ". Check it."); }
+    const freq = ["weekly", "monthly", "quarterly", "yearly"].includes(s.freq) ? s.freq : "";
+    if (amount == null) notes.push("No price visible in the screenshot.");
+    if (!freq) notes.push("Billing period not visible.");
+    return { include: true, name: String(s.name || "").trim(), plan: String(s.plan || "").trim(), amount, currency, freq,
+      date: isoOk(s.date) ? s.date : "", expiry: isoOk(s.expiry) ? s.expiry : "",
+      status: STATS.includes(s.status) ? s.status : "active", notes };
+  }
+  async function readWithAI(blob) {
+    const res = await fetch(cfg.scanApi, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ image: await shrink(blob), mime: "image/jpeg", today: isoIn(0) }) });
+    if (!res.ok) { let m = ""; try { m = (await res.json()).error || ""; } catch (e) {} throw new Error("server said " + res.status + (m ? ": " + m : "")); }
+    const data = await res.json();
+    if (!data || !Array.isArray(data.subscriptions)) throw new Error("unexpected reply");
+    return data.subscriptions.filter(s => s && s.name).map(toEntry);
+  }
+
   $("file").addEventListener("change", async ev => {
     const picked = Array.from(ev.target.files);
     if (!picked.length) return;
     const bad = picked.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
     if (bad) { ev.target.value = ""; setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
-    if (!window.Tesseract) { ev.target.value = ""; setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
     $("review-wrap").classList.add("hide"); draft = [];
     setMsg("Opening your screenshot…");
     // Copy each file into memory first. Some phones lose access to a picked file if we wait.
@@ -120,6 +156,24 @@
       return;
     }
     ev.target.value = "";
+    let raw = "", aiOk = false;
+    if (cfg.scanApi) {
+      try {
+        const parts = [];
+        for (let i = 0; i < imgs.length; i++) {
+          setMsg(`Reading image ${i + 1} of ${imgs.length}…`);
+          const items = await readWithAI(imgs[i].blob);
+          draft = draft.concat(items); parts.push(JSON.stringify(items, null, 1));
+        }
+        raw = parts.join("\n\n"); aiOk = true;
+        Parser.markDuplicates(draft, Store.load());
+      } catch (err) {
+        console.error(err); draft = [];
+        setMsg(`The AI reader didn’t respond (${errText(err)}). Using the basic reader instead…`, true);
+      }
+    }
+    if (!aiOk) {
+    if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
     const texts = [];
     let label = "";
     let worker;
@@ -152,8 +206,7 @@
       setMsg(`The text reader failed: ${errText(err)}. Check your internet connection and try again.`, true);
       return;
     } finally { try { await worker.terminate(); } catch (e) {} }
-    const raw = texts.join("\n\n").trim();
-    $("raw").textContent = raw || "(nothing readable found)";
+    raw = texts.join("\n\n").trim();
     try {
       texts.forEach(t => { draft = draft.concat(Parser.parse(t)); });
       Parser.markDuplicates(draft, Store.load());
@@ -163,6 +216,8 @@
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
       return;
     }
+    }
+    $("raw").textContent = raw || "(nothing readable found)";
     if (!draft.length) {
       setMsg("The text was read, but no subscriptions were found in it. Open “What we read” below to see what the reader saw.", true);
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
@@ -173,7 +228,6 @@
   });
 
   const FREQS = [["", "Not found"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["yearly", "Yearly"]];
-  const STATS = ["active", "cancelled", "expired"];
   function renderReview() {
     const inp = (i, k, label, type, extra) => { const v = draft[i][k]; return `<label>${label}<input data-i="${i}" data-f="${k}" type="${type}" ${extra || ""} value="${esc(v ?? "")}" placeholder="Not found" class="${v === "" || v == null ? "miss" : ""}"></label>`; };
     $("review").innerHTML = draft.map((e, i) => `<div class="card ${e.include ? "" : "off"}">

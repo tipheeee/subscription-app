@@ -5,7 +5,7 @@
   const SERVICES = ["Netflix","Spotify","YouTube Premium","YouTube Music","YouTube","Apple Music","Apple TV+","Apple Arcade","iCloud+","iCloud","Apple One","Google One","Google Play Pass","Canva Pro","Canva","Adobe Creative Cloud","Adobe","Microsoft 365","Office 365","Disney+","Disney Plus","Disney Hotstar","Hotstar","Amazon Prime","Prime Video","Amazon Music","Showmax","DStv","GOtv","StarTimes","Dropbox","ChatGPT Plus","ChatGPT","OpenAI","Claude Pro","Claude","Gemini","Notion","Zoom","Slack","Audiomack","Boomplay","LinkedIn Premium","LinkedIn","Duolingo","Figma","GitHub","Deezer","Tidal","SoundCloud","HBO Max","Hulu","Paramount+","Crunchyroll","Grammarly","OneDrive","NordVPN","ExpressVPN","Surfshark","ProtonVPN","Proton","Coursera","Udemy","Skillshare","MasterClass","Headspace","Strava","Telegram Premium","Xbox Game Pass","PlayStation Plus","Twitch","Patreon","Substack","Medium","Tinder","Bumble","Evernote","Todoist","Bitwarden","1Password","Midjourney","Perplexity","Squarespace","Wix","Shopify","Mailchimp","Zapier","Trello","Asana","Cursor","X Premium"];
   const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const SVC = SERVICES.slice().sort((a, b) => b.length - a.length)
-    .map(n => ({ n, re: new RegExp("(^|[^a-z0-9])" + esc(n) + "($|[^a-z0-9])", "i"), solo: /^[A-Za-z]{5,}$/.test(n) ? n.toLowerCase() : null }));
+    .map(n => ({ n, re: new RegExp("(^|[^a-z0-9])" + esc(n) + "($|[^a-z0-9])", "i"), solo: /^[A-Za-z]{7,}$/.test(n) ? n.toLowerCase() : null }));
 
   function lev(a, b) {
     if (Math.abs(a.length - b.length) > 1) return 9;
@@ -19,8 +19,8 @@
   // Exact match first; then forgive one wrong letter from the text reader (e.g. "Netfiix").
   function findService(line) {
     for (const s of SVC) if (s.re.test(line)) return s.n;
-    const words = line.toLowerCase().match(/[a-z]{5,}/g) || [];
-    for (const w of words) for (const s of SVC) if (s.solo && lev(w, s.solo) === 1) return s.n;
+    const words = line.toLowerCase().match(/[a-z]{7,}/g) || [];
+    for (const w of words) for (const s of SVC) if (s.solo && w[0] === s.solo[0] && lev(w, s.solo) === 1) return s.n;
     return null;
   }
 
@@ -209,7 +209,7 @@
     push();
     // Names we don't recognise only count if there's a price or a date with them.
     return blocks
-      .filter(b => b.known || b.hasAmt || b.lines.some(l => findDate(l)))
+      .filter(b => b.hasAmt || b.lines.some(l => findDate(l)))
       .map(b => buildEntry(b.name, b.lines, b.section));
   }
 
