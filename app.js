@@ -61,21 +61,32 @@
   const errText = err => (err && err.message) ? err.message : (typeof err === "string" ? err : JSON.stringify(err) || "unknown error");
 
   $("file").addEventListener("change", async ev => {
-    const files = Array.from(ev.target.files); ev.target.value = "";
-    if (!files.length) return;
-    const bad = files.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
-    if (bad) { setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
-    if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
+    const picked = Array.from(ev.target.files);
+    if (!picked.length) return;
+    const bad = picked.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
+    if (bad) { ev.target.value = ""; setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
+    if (!window.Tesseract) { ev.target.value = ""; setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
     $("review-wrap").classList.add("hide"); draft = [];
+    setMsg("Opening your screenshot…");
+    // Copy each file into memory first. Some phones lose access to a picked file if we wait.
+    const imgs = [];
+    try {
+      for (const f of picked) imgs.push({ name: f.name, blob: new Blob([await f.arrayBuffer()], { type: f.type }) });
+    } catch (err) {
+      console.error(err); ev.target.value = "";
+      setMsg("Your phone didn’t let the browser open this file. Save the screenshot to your phone’s gallery (not a cloud folder), or take a fresh screenshot, then pick it again.", true);
+      return;
+    }
+    ev.target.value = "";
     const texts = [];
-    for (let i = 0; i < files.length; i++) {
-      setMsg(`Reading image ${i + 1} of ${files.length}… (the first time can take a minute)`);
+    for (let i = 0; i < imgs.length; i++) {
+      setMsg(`Reading image ${i + 1} of ${imgs.length}… (the first time can take a minute)`);
       try {
-        const res = await Tesseract.recognize(files[i], "eng", { logger: m => { if (m.status === "recognizing text") setMsg(`Reading image ${i + 1} of ${files.length}… ${Math.round(m.progress * 100)}%`); } });
+        const res = await Tesseract.recognize(imgs[i].blob, "eng", { logger: m => { if (m.status === "recognizing text") setMsg(`Reading image ${i + 1} of ${imgs.length}… ${Math.round(m.progress * 100)}%`); } });
         texts.push(res.data.text || "");
       } catch (err) {
         console.error(err);
-        setMsg(`The text reader failed on “${files[i].name}”: ${errText(err)}. Check your internet connection and try again.`, true);
+        setMsg(`The text reader failed on “${imgs[i].name}”: ${errText(err)}. Check your internet connection and try again.`, true);
         return;
       }
     }
