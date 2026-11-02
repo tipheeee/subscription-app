@@ -73,7 +73,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 
   <h2>Your screenshots stay yours</h2>
   <div class="trust">
-    <div><b>Read on your device.</b> Text recognition runs in your browser, so images are not uploaded.</div>
+    <div><b>Read on your device by default.</b> If you switch on the enhanced reader, the screenshot is sent to a text-reading service (OCR.space) to be read. This app does not store it.</div>
     <div><b>Nothing invented.</b> If a price or date can’t be read, we mark it missing and you fill it in.</div>
     <div><b>No bank details, ever.</b> We never ask for passwords or card numbers.</div>
   </div>
@@ -99,6 +99,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 <main id="scan" class="hide">
   <h1 style="font-size:34px">Scan a screenshot</h1>
   <p class="lead" style="font-size:16px">Pick one or more screenshots of your subscriptions or billing pages. They are only used to find your subscriptions and are not saved by this app.</p>
+  <label class="note" style="display:flex;gap:10px;align-items:flex-start;margin:0 0 10px"><input type="checkbox" id="enhanced" style="margin-top:4px"><span><b>Use the enhanced reader</b> (tick this before choosing screenshots). It sends the screenshot to OCR.space, a text-reading service in the US, which returns the text. Hide names, emails and card numbers first. Leave it unticked to read on your device only.</span></label>
   <div class="filebtn" style="margin:18px 0"><span class="btn">Choose screenshots</span><input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple aria-label="Choose screenshots"></div>
   <p class="note" id="scan-msg"></p>
   <div id="review-wrap" class="hide">
