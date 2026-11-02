@@ -115,7 +115,9 @@
     const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
     const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
     c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+    let out = c.toDataURL("image/jpeg", 0.85).split(",")[1];
+    if (out.length > 1300000) out = c.toDataURL("image/jpeg", 0.6).split(",")[1]; // the reader accepts about 1 MB
+    return out;
   }
   const isoOk = v => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v + "T00:00:00Z"));
   function toEntry(s) {
@@ -133,6 +135,157 @@
   async function readWithAI(blob) {
     const res = await fetch(cfg.scanApi, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ image: await shrink(blob), mime: "image/jpeg", today: isoIn(0) }) });
+    if (!res.ok) { let m = ""; try { m = (await res.json()).error || ""; } catch (e) {} throw new Error("server said " + res.status + (m ? ": " + m : "")); }
+    const data = await res.json();
+    if (!data || typeof data.text !== "string") throw new Error("unexpected reply");
+    return { text: data.text, items: Parser.parse(data.text) };
+  }
+
+  // The "enhanced reader" is optional and off unless the person ticks it (it sends the image to OCR.space).
+  const enh = $("enhanced");
+  if (enh) {
+    try { enh.checked = localStorage.getItem("enhanced") === "1"; } catch (e) {}
+    enh.addEventListener("change", () => { try { localStorage.setItem("enhanced", enh.checked ? "1" : "0"); } catch (e) {} });
+  }
+
+  $("file").addEventListener("change", async ev => {
+    const picked = Array.from(ev.target.files);
+    if (!picked.length) return;
+    const bad = picked.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
+    if (bad) { ev.target.value = ""; setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
+    $("review-wrap").classList.add("hide"); draft = [];
+    setMsg("Opening your screenshot…");
+    // Copy each file into memory first. Some phones lose access to a picked file if we wait.
+    const imgs = [];
+    try {
+      for (const f of picked) imgs.push({ name: f.name, blob: new Blob([await f.arrayBuffer()], { type: f.type }) });
+    } catch (err) {
+      console.error(err); ev.target.value = "";
+      setMsg("Your phone didn’t let the browser open this file. Save the screenshot to your phone’s gallery (not a cloud folder), or take a fresh screenshot, then pick it again.", true);
+      return;
+    }
+    ev.target.value = "";
+    let raw = "", aiOk = false, aiErr = "";
+    const useEnhanced = !!(cfg.scanApi && enh && enh.checked);
+    if (useEnhanced) {
+      try {
+        const parts = [];
+        for (let i = 0; i < imgs.length; i++) {
+          setMsg(`Reading image ${i + 1} of ${imgs.length}…`);
+          const out = await readWithAI(imgs[i].blob);
+          draft = draft.concat(out.items); parts.push(out.text);
+        }
+        if (!draft.length) throw new Error("no subscriptions were found in the text");
+        raw = parts.join("\n\n"); aiOk = true;
+        Parser.markDuplicates(draft, Store.load());
+      } catch (err) {
+        console.error(err); draft = []; aiErr = errText(err);
+        setMsg(`The enhanced reader didn’t work (${aiErr}). Using the on-device reader instead…`, true);
+      }
+    }
+    if (!aiOk) {
+    if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
+    const texts = [];
+    let label = "";
+    let worker;
+    try {
+      worker = await Tesseract.createWorker("eng", 1, { logger: m => { if (m.status === "recognizing text") setMsg(`${label} ${Math.round(m.progress * 100)}%`); } });
+    } catch (err) {
+      console.error(err);
+      setMsg(`The text reader failed to start: ${errText(err)}. Check your internet connection and try again.`, true);
+      return;
+    }
+    try {
+      for (let i = 0; i < imgs.length; i++) {
+        label = `Reading image ${i + 1} of ${imgs.length}… (the first time can take a minute)`;
+        setMsg(label);
+        const prepared = await prepare(imgs[i].blob);
+        let best = null;
+        // Try a few reading modes. Stop as soon as every subscription has a price.
+        for (const mode of ["6", "4", "11"]) {
+          const res = await worker.setParameters({ tessedit_pageseg_mode: mode, preserve_interword_spaces: "1" }).then(() => worker.recognize(prepared));
+          const text = (res.data && res.data.text) || "";
+          let ents = []; try { ents = Parser.parse(text); } catch (e) { /* reported below */ }
+          const score = ents.filter(e => e.amount != null).length * 2 + ents.length;
+          if (!best || score > best.score) best = { text, score };
+          if (ents.length && ents.every(e => e.amount != null)) break;
+        }
+        texts.push(best.text);
+      }
+    } catch (err) {
+      console.error(err);
+      setMsg(`The text reader failed: ${errText(err)}. Check your internet connection and try again.`, true);
+      return;
+    } finally { try { await worker.terminate(); } catch (e) {} }
+    raw = texts.join("\n\n").trim();
+    try {
+      texts.forEach(t => { draft = draft.concat(Parser.parse(t)); });
+      Parser.markDuplicates(draft, Store.load());
+    } catch (err) {
+      console.error(err); draft = [];
+      setMsg(`The text was read but couldn’t be sorted into subscriptions: ${errText(err)}. Open “What we read” below and send it to me.`, true);
+      $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
+      return;
+    }
+    }
+    $("raw").textContent = (aiOk ? "[Read by: enhanced reader (OCR.space)]\n" : aiErr ? "[Read by: on-device reader — enhanced reader problem: " + aiErr + "]\n" : "[Read by: on-device reader]\n") + (raw || "(nothing readable found)");
+    if (!draft.length) {
+      setMsg("The text was read, but no subscriptions were found in it. Open “What we read” below to see what the reader saw.", true);
+      $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
+      return;
+    }
+    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""} (${aiOk ? "enhanced reader" : "on-device reader" + (aiErr ? "; enhanced reader failed: " + aiErr : "")}). Check each one before saving.`, !aiOk && !!aiErr);
+    $("save-row").classList.remove("hide"); $("review-wrap").classList.remove("hide"); renderReview();
+  });
+
+  const FREQS = [["", "Not found"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["yearly", "Yearly"]];
+  function renderReview() {
+    const inp = (i, k, label, type, extra) => { const v = draft[i][k]; return `<label>${label}<input data-i="${i}" data-f="${k}" type="${type}" ${extra || ""} value="${esc(v ?? "")}" placeholder="Not found" class="${v === "" || v == null ? "miss" : ""}"></label>`; };
+    $("review").innerHTML = draft.map((e, i) => `<div class="card ${e.include ? "" : "off"}">
+      <div style="display:flex;align-items:center;gap:10px">${logoHtml(e.name)}<label class="inc"><input type="checkbox" data-i="${i}" data-f="include" ${e.include ? "checked" : ""}> Save this one</label></div>
+      ${inp(i, "name", "Name", "text")}${inp(i, "plan", "Plan", "text")}
+      <div class="two">${inp(i, "amount", "Amount", "number", 'step="any" min="0" inputmode="decimal"')}${inp(i, "currency", "Currency", "text", 'maxlength="3"')}</div>
+      <label>Billed<select data-i="${i}" data-f="freq" class="${e.freq ? "" : "miss"}">${FREQS.map(([v, l]) => `<option value="${v}" ${e.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      ${inp(i, "date", "Next renewal", "date")}${inp(i, "expiry", "Ends / expires", "date")}
+      <label>Status<select data-i="${i}" data-f="status">${STATS.map(s => `<option ${e.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+      ${e.notes.map(n => `<p class="warn">${esc(n)}</p>`).join("")}</div>`).join("");
+  }
+  $("review").addEventListener("input", ev => {
+    const t = ev.target, i = t.dataset.i, f = t.dataset.f; if (i == null) return;
+    let v = t.type === "checkbox" ? t.checked : t.value;
+    if (f === "amount") v = v === "" ? null : parseFloat(v);
+    if (f === "currency") { v = v.toUpperCase(); t.value = v; }
+    draft[i][f] = v;
+    if (f !== "include") t.classList.toggle("miss", v === "" || v == null);
+    else t.closest(".card").classList.toggle("off", !v);
+  });
+
+  $("save").addEventListener("click", () => {
+    const chosen = draft.filter(e => e.include);
+    if (!chosen.length) { setMsg("Nothing is ticked to save.", true); return; }
+    const noName = chosen.find(e => !String(e.name).trim());
+    if (noName) { setMsg("Add a name to every ticked subscription, or untick it.", true); return; }
+    const existing = Store.load(), toSave = [];
+    chosen.forEach(e => {
+      // Skip a repeat of something already saved, unless it was flagged and the user ticked it on purpose.
+      if (!e.dup && existing.concat(toSave).some(x => Parser.isDup(x, e))) return;
+      toSave.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())), name: e.name.trim(), plan: e.plan, amount: e.amount, currency: e.currency, freq: e.freq, date: e.date, expiry: e.expiry, status: e.status, addedAt: new Date().toISOString() });
+    });
+    if (!Store.save(existing.concat(toSave))) { setMsg("Couldn’t save on this device. Check that browser storage is allowed.", true); return; }
+    draft = []; $("review-wrap").classList.add("hide"); setMsg("");
+    location.hash = "#dashboard";
+  });
+
+  // ---------- Pages ----------
+  function route() {
+    const h = (location.hash || "#home").slice(1), page = ["home", "dashboard", "scan"].includes(h) ? h : "home";
+    ["home", "dashboard", "scan"].forEach(p => $(p).classList.toggle("hide", p !== page));
+    const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
+    if (page !== "scan") { /* images are never stored: nothing to clean up */ }
+    renderAll(); window.scrollTo(0, 0);
+  }
+  addEventListener("hashchange", route); route();
+})();mage/jpeg", today: isoIn(0) }) });
     if (!res.ok) { let m = ""; try { m = (await res.json()).error || ""; } catch (e) {} throw new Error("server said " + res.status + (m ? ": " + m : "")); }
     const data = await res.json();
     if (!data || !Array.isArray(data.subscriptions)) throw new Error("unexpected reply");
