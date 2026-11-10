@@ -36,6 +36,97 @@
     { name: "Canva", plan: "Pro", amount: 36000, currency: "NGN", freq: "yearly", date: isoIn(19), status: "active" }
   ];
 
+  // ---------- Dates: moving a renewal forward ----------
+  const ymd = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const fmtDate = iso => new Date(iso + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  // Add n billing periods to a date. Keeps the day of the month (31 Jan + 1 month = 28/29 Feb, then back to the 31st later).
+  function addPeriods(iso, freq, n) {
+    const [y, m, d] = iso.split("-").map(Number);
+    if (freq === "weekly") return ymd(new Date(y, m - 1, d + 7 * n));
+    const months = (freq === "yearly" ? 12 : freq === "quarterly" ? 3 : 1) * n;
+    const first = new Date(y, m - 1 + months, 1);
+    first.setDate(Math.min(d, new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()));
+    return ymd(first);
+  }
+  // The first charge date that is still in the future.
+  function nextCharge(s) {
+    let n = 1, next = addPeriods(s.date, s.freq, n);
+    while (next <= isoIn(0) && n < 600) { n++; next = addPeriods(s.date, s.freq, n); }
+    return next;
+  }
+
+  // ---------- "Did it renew?" prompts ----------
+  // Shows from the day a date arrives, and stays until answered (or snoozed to tomorrow).
+  function dueItems(list) {
+    const t = isoIn(0);
+    return list.filter(s => s.status === "active" && (!s.snooze || s.snooze <= t) && ((s.expiry && s.expiry <= t) || (s.date && s.date <= t)));
+  }
+  function dueHtml(items) {
+    const t = isoIn(0);
+    return items.map(s => {
+      const ended = s.expiry && s.expiry <= t, when = ended ? s.expiry : s.date, n = daysTo(when);
+      const ago = n === 0 ? "today" : n === -1 ? "yesterday" : `${-n} days ago`, id = esc(s.id);
+      const later = `<button class="btn ghost" data-act="snooze" data-id="${id}">Ask me tomorrow</button>`;
+      if (ended) return `<div class="due"><b>${esc(s.name)}</b> was set to end ${ago} (${esc(fmtDate(when))}). Has it ended?
+        <div class="acts"><button class="btn" data-act="ended" data-id="${id}">Yes, it ended</button><button class="btn ghost" data-act="keep" data-id="${id}">No, it continues</button>${later}</div></div>`;
+      const needDate = !PER[s.freq] ? `<label class="note">Billing period unknown. Pick the next charge date:<br><input type="date" data-nd="${id}"></label>` : "";
+      return `<div class="due"><b>${esc(s.name)}</b> was due ${ago} (${esc(fmtDate(when))}). Did it renew, or did you cancel it?${needDate}
+        <div class="acts"><button class="btn" data-act="renewed" data-id="${id}">It renewed</button><button class="btn ghost" data-act="cancelled" data-id="${id}">I cancelled it</button>${later}</div></div>`;
+    }).join("");
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("[data-act]"); if (!b) return;
+    const id = b.dataset.id, list = Store.load(), s = list.find(x => x.id === id); if (!s) return;
+    const act = b.dataset.act;
+    if (act === "renewed") {
+      if (PER[s.freq] && s.date) s.date = nextCharge(s);
+      else {
+        const inp = document.querySelector(`[data-nd="${CSS.escape(id)}"]`);
+        if (!inp || !inp.value) { alert("Pick the next charge date first."); return; }
+        s.date = inp.value;
+      }
+      delete s.snooze;
+    } else if (act === "cancelled") { s.status = "cancelled"; delete s.snooze; }
+    else if (act === "ended") { s.status = "expired"; delete s.snooze; }
+    else if (act === "keep") { s.expiry = ""; delete s.snooze; }
+    else if (act === "snooze") s.snooze = isoIn(1);
+    Store.save(list); renderAll();
+  });
+
+  // ---------- Currency conversion ----------
+  // Rates come from a free public service (open.er-api.com), are saved on the device, and refresh about twice a day.
+  const FX_KEY = "fx.v1", CUR_KEY = "totalCur", COMMON = ["NGN", "USD", "EUR", "GBP", "GHS", "KES", "ZAR", "INR", "CAD", "AUD", "AED", "EGP"];
+  let fx = null, fxTried = false;
+  try { fx = JSON.parse(localStorage.getItem(FX_KEY) || "null"); } catch (e) {}
+  const totalCur = () => { try { return localStorage.getItem(CUR_KEY) || cfg.defaultCurrency; } catch (e) { return cfg.defaultCurrency; } };
+  async function refreshFx() {
+    if (fxTried || (fx && fx.at && Date.now() - fx.at < 12 * 3600e3)) return;
+    fxTried = true;
+    try {
+      const r = await fetch("https://open.er-api.com/v6/latest/USD");
+      const d = await r.json();
+      if (d && d.result === "success" && d.rates) {
+        fx = { rates: d.rates, at: Date.now() };
+        try { localStorage.setItem(FX_KEY, JSON.stringify(fx)); } catch (e) {}
+        renderAll();
+      }
+    } catch (e) { /* offline: keep the last saved rates, or show each currency separately */ }
+  }
+  function convert(v, from, to) {
+    if (from === to) return v;
+    const r = fx && fx.rates;
+    return r && r[from] && r[to] ? v / r[from] * r[to] : null;
+  }
+  function fillCurSelect(target, codes) {
+    const sel = $("total-cur"); if (!sel) return;
+    const all = Array.from(new Set(COMMON.concat(codes, [target])));
+    const key = all.join(",") + "|" + target;
+    if (sel.dataset.key === key) return;
+    sel.dataset.key = key;
+    sel.innerHTML = all.map(c => `<option value="${esc(c)}" ${c === target ? "selected" : ""}>${esc(c)}</option>`).join("");
+  }
+  $("total-cur").addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); });
+
   function rowsHtml(list, real) {
     const sorted = list.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
     return sorted.map(s => {
@@ -44,7 +135,7 @@
       else if (!s.date) chip = `<span class="chip far">No date</span>`;
       else { const n = daysTo(s.date); chip = n < 0 ? `<span class="chip late">Date passed</span>` : `<span class="chip ${n <= 3 ? "late" : n > 14 ? "far" : ""}">in ${n} day${n === 1 ? "" : "s"}</span>`; }
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
-      const sub = [s.plan, s.freq].filter(Boolean).map(esc).join(" · ");
+      const sub = [s.plan, s.freq, s.expiry ? "ends " + fmtDate(s.expiry) : ""].filter(Boolean).map(esc).join(" · ");
       return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small></div>
         <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
@@ -55,14 +146,35 @@
     $("sample-badge").classList.toggle("hide", !usingSample);
     $("demo-list").innerHTML = rowsHtml(sample(), false);
     $("dash-list").innerHTML = rowsHtml(list, !usingSample);
+    const due = usingSample ? [] : dueItems(real);
+    $("due-box").innerHTML = due.length ? `<h2>Needs your answer</h2>` + dueHtml(due) : "";
     const tot = {}; let unpriced = 0;
     list.filter(s => s.status === "active").forEach(s => {
       if (s.amount == null || !s.currency || !PER[s.freq]) { unpriced++; return; }
       tot[s.currency] = (tot[s.currency] || 0) + s.amount * PER[s.freq];
     });
-    const parts = Object.entries(tot);
-    $("s-month").innerHTML = parts.length ? parts.map(([c, v]) => esc(money(v, c))).join("<br>") : "–";
-    $("s-year").innerHTML = parts.length ? parts.map(([c, v]) => esc(money(v * 12, c))).join("<br>") : "–";
+    const codes = Object.keys(tot), target = totalCur();
+    fillCurSelect(target, codes);
+    const skipped = []; let sum = null;
+    if (codes.length && (codes.length > 1 || codes[0] !== target) && !(fx && fx.rates)) refreshFx();
+    if (codes.length) {
+      sum = 0;
+      for (const c of codes) { const v = convert(tot[c], c, target); if (v == null) skipped.push(c); else sum += v; }
+      if (skipped.length === codes.length) sum = null;
+    }
+    if (sum != null) {
+      $("s-month").textContent = money(sum, target);
+      $("s-year").textContent = money(sum * 12, target);
+    } else {
+      const parts = Object.entries(tot);
+      $("s-month").innerHTML = parts.length ? parts.map(([c, v]) => esc(money(v, c))).join("<br>") : "–";
+      $("s-year").innerHTML = parts.length ? parts.map(([c, v]) => esc(money(v * 12, c))).join("<br>") : "–";
+    }
+    const mixed = codes.length > 1 || (codes.length === 1 && codes[0] !== target);
+    let fxNote = "";
+    if (mixed && sum != null) fxNote = `Everything is converted to ${target} at about today’s rates${fx && fx.at ? " (updated " + new Date(fx.at).toLocaleDateString() + ")" : ""}. Real charges will differ a little.` + (skipped.length ? ` Not counted, no rate for: ${skipped.join(", ")}.` : "");
+    else if (mixed) fxNote = "Exchange rates couldn’t load, so each currency is shown separately. Open the app with internet to convert.";
+    $("fx-note").textContent = fxNote;
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
 
@@ -125,45 +237,6 @@
     }
   }
 
-  // ---------- AI reader (optional: set scanApi in config.js) ----------
-  async function shrink(blob) {
-    const bmp = await createImageBitmap(blob);
-    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-    let out = c.toDataURL("image/jpeg", 0.85).split(",")[1];
-    if (out.length > 1300000) out = c.toDataURL("image/jpeg", 0.6).split(",")[1]; // the reader accepts about 1 MB
-    return out;
-  }
-  const isoOk = v => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v + "T00:00:00Z"));
-  function toEntry(s) {
-    const notes = Array.isArray(s.notes) ? s.notes.filter(n => typeof n === "string" && n).slice(0, 3) : [];
-    const amount = typeof s.amount === "number" && s.amount > 0 ? s.amount : null;
-    let currency = typeof s.currency === "string" ? s.currency.trim().toUpperCase().slice(0, 3) : "";
-    if (amount != null && !currency) { currency = cfg.defaultCurrency; notes.push("No currency was shown — assumed " + currency + ". Check it."); }
-    const freq = ["weekly", "monthly", "quarterly", "yearly"].includes(s.freq) ? s.freq : "";
-    if (amount == null) notes.push("No price visible in the screenshot.");
-    if (!freq) notes.push("Billing period not visible.");
-    return { include: true, name: String(s.name || "").trim(), plan: String(s.plan || "").trim(), amount, currency, freq,
-      date: isoOk(s.date) ? s.date : "", expiry: isoOk(s.expiry) ? s.expiry : "",
-      status: STATS.includes(s.status) ? s.status : "active", notes };
-  }
-  async function readWithAI(blob) {
-    const res = await fetch(cfg.scanApi, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ image: await shrink(blob), mime: "image/jpeg", today: isoIn(0) }) });
-    if (!res.ok) { let m = ""; try { m = (await res.json()).error || ""; } catch (e) {} throw new Error("server said " + res.status + (m ? ": " + m : "")); }
-    const data = await res.json();
-    if (!data || typeof data.text !== "string") throw new Error("unexpected reply");
-    return { text: data.text, items: Parser.parse(data.text) };
-  }
-
-  // The "enhanced reader" is optional and off unless the person ticks it (it sends the image to OCR.space).
-  const enh = $("enhanced");
-  if (enh) {
-    try { enh.checked = localStorage.getItem("enhanced") === "1"; } catch (e) {}
-    enh.addEventListener("change", () => { try { localStorage.setItem("enhanced", enh.checked ? "1" : "0"); } catch (e) {} });
-  }
-
   $("file").addEventListener("change", async ev => {
     const picked = Array.from(ev.target.files);
     if (!picked.length) return;
@@ -181,25 +254,7 @@
       return;
     }
     ev.target.value = "";
-    let raw = "", aiOk = false, aiErr = "";
-    const useEnhanced = !!(cfg.scanApi && enh && enh.checked);
-    if (useEnhanced) {
-      try {
-        const parts = [];
-        for (let i = 0; i < imgs.length; i++) {
-          setMsg(`Reading image ${i + 1} of ${imgs.length}…`);
-          const out = await readWithAI(imgs[i].blob);
-          draft = draft.concat(out.items); parts.push(out.text);
-        }
-        if (!draft.length) throw new Error("no subscriptions were found in the text");
-        raw = parts.join("\n\n"); aiOk = true;
-        Parser.markDuplicates(draft, Store.load());
-      } catch (err) {
-        console.error(err); draft = []; aiErr = errText(err);
-        setMsg(`The enhanced reader didn’t work (${aiErr}). Using the on-device reader instead…`, true);
-      }
-    }
-    if (!aiOk) {
+    let raw = "";
     if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
     try { await loadScript("preprocess.js"); }
     catch (err) { setMsg("A reading helper file didn’t load (preprocess.js). Check that it is in your repo, then reload the page.", true); return; }
@@ -248,14 +303,13 @@
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
       return;
     }
-    }
-    $("raw").textContent = (aiOk ? "[Read by: enhanced reader (OCR.space)]\n" : aiErr ? "[Read by: on-device reader — enhanced reader problem: " + aiErr + "]\n" : "[Read by: on-device reader]\n") + (raw || "(nothing readable found)");
+    $("raw").textContent = "[Read by: on-device reader]\n" + (raw || "(nothing readable found)");
     if (!draft.length) {
       setMsg("The text was read, but no subscriptions were found in it. Open “What we read” below to see what the reader saw.", true);
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
       return;
     }
-    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""} (${aiOk ? "enhanced reader" : "on-device reader" + (aiErr ? "; enhanced reader failed: " + aiErr : "")}). Check each one before saving.`, !aiOk && !!aiErr);
+    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""}. Check each one before saving.`);
     $("save-row").classList.remove("hide"); $("review-wrap").classList.remove("hide"); renderReview();
   });
 
@@ -267,7 +321,7 @@
       ${inp(i, "name", "Name", "text")}${inp(i, "plan", "Plan", "text")}
       <div class="two">${inp(i, "amount", "Amount", "number", 'step="any" min="0" inputmode="decimal"')}${inp(i, "currency", "Currency", "text", 'maxlength="3"')}</div>
       <label>Billed<select data-i="${i}" data-f="freq" class="${e.freq ? "" : "miss"}">${FREQS.map(([v, l]) => `<option value="${v}" ${e.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      ${inp(i, "date", "Next renewal", "date")}${inp(i, "expiry", "Ends / expires", "date")}
+      ${inp(i, "date", "Next renewal", "date")}${inp(i, "expiry", "Ends / expires (leave empty if it keeps renewing)", "date")}
       <label>Status<select data-i="${i}" data-f="status">${STATS.map(s => `<option ${e.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       ${e.notes.map(n => `<p class="warn">${esc(n)}</p>`).join("")}</div>`).join("");
   }
@@ -305,5 +359,5 @@
     if (page !== "scan") { /* images are never stored: nothing to clean up */ }
     renderAll(); window.scrollTo(0, 0);
   }
-  addEventListener("hashchange", route); route();
+  addEventListener("hashchange", route); route(); refreshFx();
 })();

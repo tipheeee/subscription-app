@@ -54,6 +54,7 @@ footer{margin-top:48px;color:var(--mute);font-size:13px}
 details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--line)}
 .filebtn{position:relative}.filebtn input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
 .logo{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none}
+.due{background:var(--card);border:2px solid var(--sun);border-radius:14px;padding:14px 16px;margin-bottom:12px}.due .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.due .btn{padding:10px 14px;font-size:15px}.due input[type=date]{font:400 16px var(--body);padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);margin-top:4px}
 .logo.letter{border:0;font:800 18px var(--head)}
 </style>
 </head>
@@ -73,7 +74,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 
   <h2>Your screenshots stay yours</h2>
   <div class="trust">
-    <div><b>Read on your device by default.</b> If you switch on the enhanced reader, the screenshot is sent to a text-reading service (OCR.space) to be read. This app does not store it.</div>
+    <div><b>Read on your device.</b> Your screenshot is read by your own browser and never sent to a server. This app does not store it.</div>
     <div><b>Nothing invented.</b> If a price or date can’t be read, we mark it missing and you fill it in.</div>
     <div><b>No bank details, ever.</b> We never ask for passwords or card numbers.</div>
   </div>
@@ -83,10 +84,13 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 <main id="dashboard" class="hide">
   <h1 style="font-size:34px">Dashboard</h1>
   <p><span class="badge" id="sample-badge">Sample data</span></p>
+  <label class="note" style="display:flex;gap:8px;align-items:center;margin:0 0 10px">Show totals in <select id="total-cur" aria-label="Currency for totals" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit"></select></label>
   <div class="stats">
     <div class="stat"><b id="s-month">–</b><span>Per month</span></div>
     <div class="stat"><b id="s-year">–</b><span>Per year (estimate)</span></div>
   </div>
+  <p class="note" id="fx-note"></p>
+  <div id="due-box"></div>
   <h2>Upcoming renewals</h2>
   <div class="renewals" id="dash-list"></div>
   <p class="note" id="unpriced"></p>
@@ -99,7 +103,6 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 <main id="scan" class="hide">
   <h1 style="font-size:34px">Scan a screenshot</h1>
   <p class="lead" style="font-size:16px">Pick one or more screenshots of your subscriptions or billing pages. They are only used to find your subscriptions and are not saved by this app.</p>
-  <label class="note" style="display:flex;gap:10px;align-items:flex-start;margin:0 0 10px"><input type="checkbox" id="enhanced" style="margin-top:4px"><span><b>Use the enhanced reader</b> (tick this before choosing screenshots). It sends the screenshot to OCR.space, a text-reading service in the US, which returns the text. Hide names, emails and card numbers first. Leave it unticked to read on your device only.</span></label>
   <div class="filebtn" style="margin:18px 0"><span class="btn">Choose screenshots</span><input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple aria-label="Choose screenshots"></div>
   <p class="note" id="scan-msg"></p>
   <div id="review-wrap" class="hide">
@@ -109,7 +112,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   </div>
 </main>
 
-<footer><span data-app-name></span> · <span data-tagline></span><br>Logos belong to their respective owners. This app is not affiliated with them.</footer>
+<footer><span data-app-name></span> · <span data-tagline></span><br>Logos belong to their respective owners. This app is not affiliated with them. Exchange rates by <a href="https://www.exchangerate-api.com" rel="noopener">Exchange Rate API</a>.</footer>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
