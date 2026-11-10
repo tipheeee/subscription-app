@@ -291,4 +291,19 @@
       // Skip a repeat of something already saved, unless it was flagged and the user ticked it on purpose.
       if (!e.dup && existing.concat(toSave).some(x => Parser.isDup(x, e))) return;
       toSave.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())), name: e.name.trim(), plan: e.plan, amount: e.amount, currency: e.currency, freq: e.freq, date: e.date, expiry: e.expiry, status: e.status, addedAt: new Date().toISOString() });
-     }
+    });
+    if (!Store.save(existing.concat(toSave))) { setMsg("Couldn’t save on this device. Check that browser storage is allowed.", true); return; }
+    draft = []; $("review-wrap").classList.add("hide"); setMsg("");
+    location.hash = "#dashboard";
+  });
+
+  // ---------- Pages ----------
+  function route() {
+    const h = (location.hash || "#home").slice(1), page = ["home", "dashboard", "scan"].includes(h) ? h : "home";
+    ["home", "dashboard", "scan"].forEach(p => $(p).classList.toggle("hide", p !== page));
+    const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
+    if (page !== "scan") { /* images are never stored: nothing to clean up */ }
+    renderAll(); window.scrollTo(0, 0);
+  }
+  addEventListener("hashchange", route); route();
+})();
