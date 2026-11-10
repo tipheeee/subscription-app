@@ -56,6 +56,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 .logo{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none}
 .due{background:var(--card);border:2px solid var(--sun);border-radius:14px;padding:14px 16px;margin-bottom:12px}.due .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.due .btn{padding:10px 14px;font-size:15px}.due input[type=date]{font:400 16px var(--body);padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);margin-top:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:20}.modal.hide{display:none}.sheet{width:100%;max-width:720px;max-height:90vh;overflow:auto;margin:0;border-radius:16px 16px 0 0}
+.ch-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.two2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .logo.letter{border:0;font:800 18px var(--head)}
 </style>
 </head>
@@ -117,21 +118,38 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 <!-- SETTINGS -->
 <main id="settings" class="hide">
   <h1 style="font-size:34px">Reminders</h1>
-  <p class="lead" style="font-size:16px">Choose when to be reminded before a subscription charges you.</p>
+  <p class="lead" style="font-size:16px">Choose when, and how, you want to be reminded.</p>
   <div class="card">
-    <b>Remind me</b>
+    <b>When</b>
     <label class="inc"><input type="checkbox" data-d="7"> 7 days before</label>
     <label class="inc"><input type="checkbox" data-d="3"> 3 days before</label>
     <label class="inc"><input type="checkbox" data-d="1"> 1 day before</label>
     <label class="inc"><input type="checkbox" data-d="0"> On the day</label>
-    <p class="note" style="margin:0">These show in “Charging soon” on your dashboard.</p>
+  </div>
+  <h2>How</h2>
+  <div class="card">
+    <div class="ch-head"><b>🔔 Push notifications</b><label class="inc"><input type="checkbox" id="push-on"> On</label></div>
+    <p class="note" id="notif-status" style="margin:0"></p>
+    <div class="two2"><label>Morning<input type="time" id="t-am"></label><label>Evening<input type="time" id="t-pm"></label></div>
+    <label class="inc"><input type="checkbox" id="pm-on"> Also remind me in the evening (twice a day)</label>
+    <button class="btn ghost" id="notif-test">Send a test</button>
+    <p class="note" style="margin:0">Push reminders come on the days you chose above. They arrive when you have opened the app recently. They can’t arrive while it is fully closed yet. On iPhone, first add this site to your Home Screen.</p>
   </div>
   <div class="card">
-    <b>Phone / browser notifications</b>
-    <p class="note" id="notif-status" style="margin:0"></p>
-    <button class="btn" id="notif-btn">Turn on notifications</button>
-    <button class="btn ghost" id="notif-test">Send a test</button>
-    <p class="note" style="margin:0">Notifications appear when you have opened the app recently. They can’t arrive while it is fully closed yet. On iPhone, first add this site to your Home Screen.</p>
+    <b>📅 Calendar</b>
+    <p class="note" style="margin:0">Works even when the app is closed. Adds every active subscription to your phone’s calendar as a repeating event, with alerts for the days you chose above. Open the file and choose “Add to calendar”.</p>
+    <label class="inc"><input type="checkbox" id="cal-ask"> After I tap “It renewed”, offer to update my calendar</label>
+    <button class="btn" id="cal-btn">Download calendar file</button>
+    <p class="note" id="cal-msg" style="margin:0"></p>
+  </div>
+  <div class="card">
+    <div class="ch-head"><b>✉️ Email</b><span class="badge">Not active yet</span></div>
+    <label>Your email address<input type="email" id="email-addr" placeholder="you@example.com" autocomplete="email"></label>
+    <p class="note" style="margin:0">Your address is saved on this device. Emails start once the online server is connected (next step).</p>
+  </div>
+  <div class="card off">
+    <div class="ch-head"><b>💬 WhatsApp</b><span class="badge">Coming soon</span></div>
+    <p class="note" style="margin:0">Reminders on WhatsApp.</p>
   </div>
   <p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
 </main>

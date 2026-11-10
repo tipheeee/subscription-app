@@ -57,6 +57,15 @@
 
   // ---------- "Did it renew?" prompts ----------
   // Shows from the day a date arrives, and stays until answered (or snoozed to tomorrow).
+  let notice = null;
+  function noticeHtml() {
+    if (!notice) return "";
+    const id = esc(notice.id);
+    if (notice.kind === "renewed") return `<div class="due"><b>${esc(notice.text)}</b> Update your calendar so its alert matches this date.
+      <div class="acts"><button class="btn" data-act="calics" data-id="${id}">Add to calendar</button><button class="btn ghost" data-act="dismiss" data-id="${id}">Not now</button></div></div>`;
+    return `<div class="due">${esc(notice.text)} If you added it to your calendar, delete that event there.
+      <div class="acts"><button class="btn ghost" data-act="dismiss" data-id="${id}">OK</button></div></div>`;
+  }
   function dueItems(list) {
     const t = isoIn(0);
     return list.filter(s => s.status === "active" && (!s.snooze || s.snooze <= t) && ((s.expiry && s.expiry <= t) || (s.date && s.date <= t)));
@@ -90,6 +99,10 @@
     else if (act === "ended") { s.status = "expired"; delete s.snooze; }
     else if (act === "keep") { s.expiry = ""; delete s.snooze; }
     else if (act === "snooze") s.snooze = isoIn(1);
+    if ((act === "renewed" || act === "cancelled") && prefs().calAsk !== false)
+      notice = { id: s.id, kind: act, text: act === "renewed" ? `Next charge for ${s.name}: ${fmtDate(s.date)}.` : `${s.name} is marked cancelled.` };
+    else if (act === "calics") { downloadIcs(buildIcs(s.id), "subscription.ics"); notice = null; }
+    else if (act === "dismiss") notice = null;
     Store.save(list); renderAll();
   });
 
@@ -170,8 +183,12 @@
   // ---------- Reminder settings and notifications ----------
   // Browsers can only show a notification while the app has been opened recently. Notifications while the app is fully closed need an online server (a later step).
   const PREF_KEY = "notif.v1", SENT_KEY = "notif.sent.v1";
-  const prefs = () => { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || "null"); if (p && Array.isArray(p.days)) return p; } catch (e) {} return { days: [3, 0] }; };
+  const DEFAULTS = { days: [3, 0], am: "09:00", pm: "18:00", pmOn: true, calAsk: true, email: "" };
+  const prefs = () => { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || "null"); if (p && Array.isArray(p.days)) return Object.assign({}, DEFAULTS, p); } catch (e) {} return Object.assign({}, DEFAULTS); };
   const savePrefs = p => { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch (e) {} };
+  const upd = patch => savePrefs(Object.assign(prefs(), patch));
+  // Push is on if the person switched it on; for people who allowed notifications before this setting existed, it counts as on.
+  const pushOn = p => p.push !== undefined ? p.push : (canNotify() && Notification.permission === "granted");
   const loadSent = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY) || "[]"); } catch (e) { return []; } };
   const canNotify = () => "Notification" in window;
 
@@ -183,47 +200,108 @@
     } catch (e) {}
     try { new Notification(title, opts); } catch (e) {}
   }
+  // The words of a reminder. The test button uses the same function, so the test shows exactly what a real reminder looks like.
+  function reminderMsg(s, n) {
+    const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "";
+    const detail = [price, s.freq].filter(Boolean).join(" · ");
+    if (n < 0) return { title: `${s.name}: did it renew?`, body: `It was due ${fmtDate(s.date)}. Open the app and tap renewed or cancelled.` };
+    const when = n === 0 ? "today" : `in ${n} day${n === 1 ? "" : "s"}`;
+    return { title: `${s.name} charges ${when}`, body: (detail ? detail + ". " : "") + "Tap to open and review." };
+  }
   // One message per subscription per window. If the app is opened late, only the closest window fires (not all of them at once).
-  function checkReminders() {
-    if (!canNotify() || Notification.permission !== "granted") return;
-    const days = prefs().days, sent = loadSent(), fresh = [];
+  // Push reminders come on the days you chose, in the morning and (if you want) the evening. If the app is opened late,
+  // only the latest slot that has passed is sent, so you never get two at once.
+  function checkReminders(now = new Date()) {
+    const p = prefs();
+    if (!pushOn(p) || !canNotify() || Notification.permission !== "granted") return;
+    const mins = now.getHours() * 60 + now.getMinutes(), today = ymd(now);
+    const tm = t => { const [h, m] = String(t).split(":").map(Number); return h * 60 + (m || 0); };
+    const slots = [["am", p.am || "09:00"]]; if (p.pmOn !== false) slots.push(["pm", p.pm || "18:00"]);
+    const reached = slots.filter(([, t]) => tm(t) <= mins).map(([k]) => k);
+    if (!reached.length) return;
+    const latest = reached[reached.length - 1], sent = loadSent(), fresh = [];
     Store.load().filter(s => s.status === "active" && s.date).forEach(s => {
-      const n = daysTo(s.date), price = s.amount != null && s.currency ? " (" + money(s.amount, s.currency) + ")" : "";
-      let key, text, mark = [];
-      if (n < 0) { key = `${s.id}|${s.date}|late`; text = `${s.name} was due ${fmtDate(s.date)}. Open the app and tell us if it renewed or you cancelled it.`; mark = [key]; }
-      else {
-        const hit = days.filter(d => d >= n);
-        if (!hit.length) return;
-        key = `${s.id}|${s.date}|${Math.min(...hit)}`;
-        text = n === 0 ? `${s.name} charges today${price}.` : `${s.name} charges in ${n} day${n === 1 ? "" : "s"}${price}.`;
-        mark = hit.map(d => `${s.id}|${s.date}|${d}`);
-      }
+      const n = Math.round((new Date(s.date + "T00:00:00") - new Date(today + "T00:00:00")) / 86400000);
+      if (n >= 0 ? !p.days.includes(n) : n < -3) return;   // overdue: remind for up to 3 days
+      const key = `${s.id}|${s.date}|${today}|${latest}`;
       if (sent.includes(key)) return;
-      fresh.push(...mark); showNotif(cfg.name, text, key);
+      fresh.push(...reached.map(k => `${s.id}|${s.date}|${today}|${k}`));
+      const m = reminderMsg(s, n); showNotif(m.title, m.body, key);
     });
     if (fresh.length) { try { localStorage.setItem(SENT_KEY, JSON.stringify(sent.concat(fresh).slice(-400))); } catch (e) {} }
   }
   function renderSettings() {
-    const p = prefs();
+    const p = prefs(), granted = canNotify() && Notification.permission === "granted";
     document.querySelectorAll("[data-d]").forEach(c => { c.checked = p.days.includes(+c.dataset.d); });
-    let msg, on = false;
-    if (!canNotify()) msg = "This browser doesn’t support notifications. You will still see reminders on the dashboard.";
-    else if (Notification.permission === "granted") { msg = "Notifications are on for this browser."; on = true; }
-    else if (Notification.permission === "denied") msg = "Notifications are blocked. Allow them for this site in your browser’s site settings, then come back.";
-    else msg = "Notifications are off.";
-    $("notif-status").textContent = msg;
-    $("notif-btn").classList.toggle("hide", !canNotify() || on || Notification.permission === "denied");
-    $("notif-test").classList.toggle("hide", !on);
+    $("push-on").checked = pushOn(p) && granted;
+    $("t-am").value = p.am; $("t-pm").value = p.pm; $("pm-on").checked = p.pmOn !== false;
+    $("cal-ask").checked = p.calAsk !== false; $("email-addr").value = p.email || "";
+    $("notif-status").textContent = !canNotify() ? "This browser doesn’t support notifications. Use the calendar option instead."
+      : Notification.permission === "denied" ? "Notifications are blocked. Allow them for this site in your browser’s site settings, then come back."
+      : $("push-on").checked ? "Push notifications are on." : "Push notifications are off.";
+    $("notif-test").classList.toggle("hide", !$("push-on").checked);
   }
   document.querySelectorAll("[data-d]").forEach(c => c.addEventListener("change", () => {
-    savePrefs({ days: Array.from(document.querySelectorAll("[data-d]")).filter(x => x.checked).map(x => +x.dataset.d).sort((a, b) => b - a) });
+    upd({ days: Array.from(document.querySelectorAll("[data-d]")).filter(x => x.checked).map(x => +x.dataset.d).sort((a, b) => b - a) });
     renderAll();
   }));
-  $("notif-btn").addEventListener("click", async () => {
-    try { await Notification.requestPermission(); } catch (e) {}
+  $("push-on").addEventListener("change", async ev => {
+    if (ev.target.checked) {
+      let r = "denied"; try { r = canNotify() ? await Notification.requestPermission() : "denied"; } catch (e) {}
+      upd({ push: r === "granted" });
+    } else upd({ push: false });
     renderSettings(); checkReminders();
   });
-  $("notif-test").addEventListener("click", () => showNotif(cfg.name, "Notifications are working.", "test"));
+  $("t-am").addEventListener("change", ev => upd({ am: ev.target.value || "09:00" }));
+  $("t-pm").addEventListener("change", ev => upd({ pm: ev.target.value || "18:00" }));
+  $("pm-on").addEventListener("change", ev => upd({ pmOn: ev.target.checked }));
+  $("cal-ask").addEventListener("change", ev => upd({ calAsk: ev.target.checked }));
+  $("email-addr").addEventListener("change", ev => upd({ email: ev.target.value.trim() }));
+  $("notif-test").addEventListener("click", () => {
+    // Uses your soonest real subscription, so you see a real reminder (marked as a test).
+    const next = Store.load().filter(x => x.status === "active" && x.date && daysTo(x.date) >= 0).sort((a, b) => a.date.localeCompare(b.date))[0];
+    const m = next ? reminderMsg(next, daysTo(next.date)) : { title: "Netflix charges in 3 days", body: "NGN 4,400.00 · monthly. Tap to open and review." };
+    showNotif("Test: " + m.title, m.body, "test");
+  });
+
+  // ---------- Calendar file (.ics) ----------
+  // Works with the app closed: the phone's own calendar sends the alerts. Same UID each time, so downloading again updates the events.
+  const icsText = t => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  const fold = line => { const out = []; while (line.length > 60) { out.push(line.slice(0, 60)); line = " " + line.slice(60); } out.push(line); return out.join("\r\n"); };
+  function buildIcs(onlyId) {
+    const days = prefs().days, stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+    const RULE = { weekly: "FREQ=WEEKLY", monthly: "FREQ=MONTHLY", quarterly: "FREQ=MONTHLY;INTERVAL=3", yearly: "FREQ=YEARLY" };
+    const ev = [];
+    Store.load().filter(x => x.status === "active" && x.date && (!onlyId || x.id === onlyId)).forEach(x => {
+      const rec = !!RULE[x.freq];
+      if (x.date < isoIn(0) && !rec) return;
+      const start = x.date < isoIn(0) ? nextCharge(x) : x.date;
+      const end = ymd(new Date(+start.slice(0, 4), +start.slice(5, 7) - 1, +start.slice(8, 10) + 1));
+      const price = x.amount != null && x.currency ? " (" + money(x.amount, x.currency) + ")" : "";
+      const L = ["BEGIN:VEVENT", `UID:${x.id}@shieldpay`, `DTSTAMP:${stamp}`, `SEQUENCE:${Math.floor(Date.now() / 1000)}`,
+        `DTSTART;VALUE=DATE:${start.replace(/-/g, "")}`, `DTEND;VALUE=DATE:${end.replace(/-/g, "")}`];
+      if (rec) L.push("RRULE:" + RULE[x.freq] + (x.expiry && x.expiry >= start ? ";UNTIL=" + x.expiry.replace(/-/g, "") : ""));
+      L.push("SUMMARY:" + icsText(`${x.name} charges${price}`), "DESCRIPTION:" + icsText(`Subscription renewal. Open ${cfg.name} to mark it renewed or cancelled.`));
+      days.forEach(d => L.push("BEGIN:VALARM", "TRIGGER:" + (d === 0 ? "PT9H" : "-PT" + (d * 24 - 9) + "H"), "ACTION:DISPLAY",
+        "DESCRIPTION:" + icsText(`${x.name} charges ${d === 0 ? "today" : "in " + d + " day" + (d === 1 ? "" : "s")}`), "END:VALARM"));
+      L.push("END:VEVENT"); ev.push(L.map(fold).join("\r\n"));
+    });
+    if (!ev.length) return null;
+    return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//" + cfg.name + "//Subscriptions//EN", "CALSCALE:GREGORIAN"].concat(ev, ["END:VCALENDAR"]).join("\r\n") + "\r\n";
+  }
+  function downloadIcs(ics, name) {
+    if (!ics) return false;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" })); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    return true;
+  }
+  $("cal-btn").addEventListener("click", () => {
+    $("cal-msg").textContent = downloadIcs(buildIcs(), "subscriptions.ics")
+      ? "Downloaded. Open the file and choose “Add to calendar”."
+      : "Nothing to add yet. Save a subscription that has a renewal date first.";
+  });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
   function rowsHtml(list, real) {
@@ -246,7 +324,7 @@
     $("demo-list").innerHTML = rowsHtml(sample(), false);
     $("dash-list").innerHTML = rowsHtml(list, !usingSample);
     const due = usingSample ? [] : dueItems(real);
-    $("due-box").innerHTML = due.length ? `<h2>Needs your answer</h2>` + dueHtml(due) : "";
+    $("due-box").innerHTML = (usingSample ? "" : noticeHtml()) + (due.length ? `<h2>Needs your answer</h2>` + dueHtml(due) : "");
     const mx = Math.max(-1, ...prefs().days);
     const soon = usingSample ? [] : real.filter(s => s.status === "active" && s.date && daysTo(s.date) >= 0 && daysTo(s.date) <= mx).sort((a, b) => a.date.localeCompare(b.date));
     $("remind-box").innerHTML = soon.length ? `<h2>Charging soon</h2><div class="renewals">` + soon.map(s => { const n = daysTo(s.date); return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name)}<small>${n === 0 ? "charges today" : "charges in " + n + " day" + (n === 1 ? "" : "s")}</small></div><span class="amt">${s.amount != null && s.currency ? esc(money(s.amount, s.currency)) : ""}</span></div>`; }).join("") + `</div>` : "";
@@ -465,5 +543,5 @@
   }
   addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
-  setInterval(checkReminders, 30 * 60 * 1000);
+  setInterval(() => checkReminders(), 30 * 60 * 1000);
 })();
