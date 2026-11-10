@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Site check</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;margin:16px;max-width:680px}h1{font-size:20px}
+.row{padding:8px 10px;margin:6px 0;border-radius:8px;background:#f2f2f2;word-break:break-word}.ok{background:#e3f5e6}.bad{background:#fde3e3}</style></head>
+<body><h1>Site check</h1><p>Reading your site's files. Screenshot this whole page and send it to Claude.</p><div id="out">Checking…</div>
+<script>
+(async () => {
+  const out = document.getElementById("out"); out.textContent = "";
+  const add = (ok, msg) => { const d = document.createElement("div"); d.className = "row " + (ok ? "ok" : "bad"); d.textContent = (ok ? "OK: " : "PROBLEM: ") + msg; out.appendChild(d); };
+  const bust = "?c=" + Date.now();
+  let html = "";
+  try { const r = await fetch("index.html" + bust, { cache: "no-store" }); html = await r.text(); add(r.ok && html.length > 500, "index.html (" + r.status + ", " + html.length + " characters)"); }
+  catch (e) { add(false, "index.html could not be read: " + e.message); }
+  const srcs = Array.from(html.matchAll(/<script[^>]+src="([^"]+)"/g)).map(m => m[1]).filter(s => !/^https?:/.test(s));
+  const need = ["config.js", "logos.js", "parser.js", "store.js", "app.js", "preprocess.js"];
+  need.forEach(n => { if (n !== "preprocess.js" && !srcs.includes(n)) add(false, "index.html does not load " + n); });
+  for (const n of need) {
+    try {
+      const r = await fetch(n + bust, { cache: "no-store" }); const t = await r.text();
+      const isHtml = /^\s*<(!doctype|html)/i.test(t);
+      if (!r.ok || isHtml) { add(false, n + " is MISSING from the site (status " + r.status + ")"); continue; }
+      try { new Function(t); add(true, n + " (" + t.length + " characters, no code errors)"); }
+      catch (e) { add(false, n + " has a code error: " + e.message); }
+      if (n === "app.js" && t.includes("}i, {")) add(false, "app.js is the OLD broken copy");
+    } catch (e) { add(false, n + " could not be loaded: " + e.message); }
+  }
+  for (const [id, label] of [["navbtn", "top button"], ["dashboard", "dashboard section"], ["home", "home section"], ["scan", "scan section"], ["file", "file picker"], ["review", "review area"]])
+    if (!/id="/.test(html) || html.indexOf('id="' + id + '"') === -1) add(false, "index.html is missing the " + label + ' (id="' + id + '")');
+  const link = html.match(/<a[^>]*href="#dashboard"[^>]*>/g);
+  add(!!link, link ? "dashboard links found: " + link.length : "no link to #dashboard in index.html");
+  add(true, "Done. Browser: " + navigator.userAgent.slice(0, 90));
+})();
+</script></body></html>
