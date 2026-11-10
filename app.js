@@ -127,6 +127,105 @@
   }
   $("total-cur").addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); });
 
+  // ---------- Editing a saved subscription ----------
+  let editId = null;
+  function openEditor(id) {
+    const s = Store.load().find(x => x.id === id); if (!s) return;
+    editId = id;
+    const f = (k, label, type, extra) => `<label>${label}<input data-e="${k}" type="${type}" ${extra || ""} value="${esc(s[k] ?? "")}"></label>`;
+    $("edit-form").innerHTML = `<h2 style="margin:0;font-size:20px">Edit ${esc(s.name)}</h2>
+      ${f("name", "Name", "text")}${f("plan", "Plan", "text")}
+      <div class="two">${f("amount", "Amount", "number", 'step="any" min="0" inputmode="decimal"')}${f("currency", "Currency", "text", 'maxlength="3"')}</div>
+      <label>Billed<select data-e="freq">${FREQS.map(([v, l]) => `<option value="${v}" ${s.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      ${f("date", "Next renewal", "date")}${f("expiry", "Ends / expires (leave empty if it keeps renewing)", "date")}
+      <label>Status<select data-e="status">${STATS.map(x => `<option ${s.status === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+      <p class="warn hide" id="edit-err"></p>
+      <div style="display:flex;gap:10px"><button class="btn" id="edit-save">Save changes</button><button class="btn ghost" id="edit-cancel">Cancel</button></div>`;
+    $("editor").classList.remove("hide");
+  }
+  const closeEditor = () => { editId = null; $("editor").classList.add("hide"); };
+  function saveEditor() {
+    const list = Store.load(), s = list.find(x => x.id === editId); if (!s) { closeEditor(); return; }
+    const v = {}; document.querySelectorAll("#edit-form [data-e]").forEach(el => { v[el.dataset.e] = el.value; });
+    const err = m => { const p = $("edit-err"); p.textContent = m; p.classList.remove("hide"); };
+    if (!v.name.trim()) return err("Add a name.");
+    const amount = v.amount === "" ? null : parseFloat(v.amount);
+    if (amount != null && !(amount >= 0)) return err("The amount must be a number.");
+    let currency = v.currency.trim().toUpperCase();
+    if (amount != null && !currency) currency = cfg.defaultCurrency;
+    const oldDate = s.date, oldStatus = s.status;
+    Object.assign(s, { name: v.name.trim(), plan: v.plan.trim(), amount, currency, freq: v.freq, date: v.date, expiry: v.expiry, status: v.status });
+    if (s.date !== oldDate || s.status !== oldStatus) delete s.snooze;
+    if (!Store.save(list)) return err("Couldn’t save on this device. Check that browser storage is allowed.");
+    closeEditor(); renderAll();
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("[data-edit]");
+    if (b) { openEditor(b.dataset.edit); return; }
+    if (e.target.id === "edit-save") saveEditor();
+    else if (e.target.id === "edit-cancel" || e.target.id === "editor") closeEditor();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && editId) closeEditor(); });
+
+  // ---------- Reminder settings and notifications ----------
+  // Browsers can only show a notification while the app has been opened recently. Notifications while the app is fully closed need an online server (a later step).
+  const PREF_KEY = "notif.v1", SENT_KEY = "notif.sent.v1";
+  const prefs = () => { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || "null"); if (p && Array.isArray(p.days)) return p; } catch (e) {} return { days: [3, 0] }; };
+  const savePrefs = p => { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch (e) {} };
+  const loadSent = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY) || "[]"); } catch (e) { return []; } };
+  const canNotify = () => "Notification" in window;
+
+  async function showNotif(title, body, tag) {
+    const opts = { body, tag };
+    try {
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) { await reg.showNotification(title, opts); return; }
+    } catch (e) {}
+    try { new Notification(title, opts); } catch (e) {}
+  }
+  // One message per subscription per window. If the app is opened late, only the closest window fires (not all of them at once).
+  function checkReminders() {
+    if (!canNotify() || Notification.permission !== "granted") return;
+    const days = prefs().days, sent = loadSent(), fresh = [];
+    Store.load().filter(s => s.status === "active" && s.date).forEach(s => {
+      const n = daysTo(s.date), price = s.amount != null && s.currency ? " (" + money(s.amount, s.currency) + ")" : "";
+      let key, text, mark = [];
+      if (n < 0) { key = `${s.id}|${s.date}|late`; text = `${s.name} was due ${fmtDate(s.date)}. Open the app and tell us if it renewed or you cancelled it.`; mark = [key]; }
+      else {
+        const hit = days.filter(d => d >= n);
+        if (!hit.length) return;
+        key = `${s.id}|${s.date}|${Math.min(...hit)}`;
+        text = n === 0 ? `${s.name} charges today${price}.` : `${s.name} charges in ${n} day${n === 1 ? "" : "s"}${price}.`;
+        mark = hit.map(d => `${s.id}|${s.date}|${d}`);
+      }
+      if (sent.includes(key)) return;
+      fresh.push(...mark); showNotif(cfg.name, text, key);
+    });
+    if (fresh.length) { try { localStorage.setItem(SENT_KEY, JSON.stringify(sent.concat(fresh).slice(-400))); } catch (e) {} }
+  }
+  function renderSettings() {
+    const p = prefs();
+    document.querySelectorAll("[data-d]").forEach(c => { c.checked = p.days.includes(+c.dataset.d); });
+    let msg, on = false;
+    if (!canNotify()) msg = "This browser doesn’t support notifications. You will still see reminders on the dashboard.";
+    else if (Notification.permission === "granted") { msg = "Notifications are on for this browser."; on = true; }
+    else if (Notification.permission === "denied") msg = "Notifications are blocked. Allow them for this site in your browser’s site settings, then come back.";
+    else msg = "Notifications are off.";
+    $("notif-status").textContent = msg;
+    $("notif-btn").classList.toggle("hide", !canNotify() || on || Notification.permission === "denied");
+    $("notif-test").classList.toggle("hide", !on);
+  }
+  document.querySelectorAll("[data-d]").forEach(c => c.addEventListener("change", () => {
+    savePrefs({ days: Array.from(document.querySelectorAll("[data-d]")).filter(x => x.checked).map(x => +x.dataset.d).sort((a, b) => b - a) });
+    renderAll();
+  }));
+  $("notif-btn").addEventListener("click", async () => {
+    try { await Notification.requestPermission(); } catch (e) {}
+    renderSettings(); checkReminders();
+  });
+  $("notif-test").addEventListener("click", () => showNotif(cfg.name, "Notifications are working.", "test"));
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
   function rowsHtml(list, real) {
     const sorted = list.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
     return sorted.map(s => {
@@ -137,7 +236,7 @@
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
       const sub = [s.plan, s.freq, s.expiry ? "ends " + fmtDate(s.expiry) : ""].filter(Boolean).map(esc).join(" · ");
       return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small></div>
-        <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
+        <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}">✎</button><button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
   }
 
@@ -148,6 +247,9 @@
     $("dash-list").innerHTML = rowsHtml(list, !usingSample);
     const due = usingSample ? [] : dueItems(real);
     $("due-box").innerHTML = due.length ? `<h2>Needs your answer</h2>` + dueHtml(due) : "";
+    const mx = Math.max(-1, ...prefs().days);
+    const soon = usingSample ? [] : real.filter(s => s.status === "active" && s.date && daysTo(s.date) >= 0 && daysTo(s.date) <= mx).sort((a, b) => a.date.localeCompare(b.date));
+    $("remind-box").innerHTML = soon.length ? `<h2>Charging soon</h2><div class="renewals">` + soon.map(s => { const n = daysTo(s.date); return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name)}<small>${n === 0 ? "charges today" : "charges in " + n + " day" + (n === 1 ? "" : "s")}</small></div><span class="amt">${s.amount != null && s.currency ? esc(money(s.amount, s.currency)) : ""}</span></div>`; }).join("") + `</div>` : "";
     const tot = {}; let unpriced = 0;
     list.filter(s => s.status === "active").forEach(s => {
       if (s.amount == null || !s.currency || !PER[s.freq]) { unpriced++; return; }
@@ -352,12 +454,16 @@
   });
 
   // ---------- Pages ----------
+  const PAGES = ["home", "dashboard", "scan", "settings"];
   function route() {
-    const h = (location.hash || "#home").slice(1), page = ["home", "dashboard", "scan"].includes(h) ? h : "home";
-    ["home", "dashboard", "scan"].forEach(p => $(p).classList.toggle("hide", p !== page));
+    const h = (location.hash || "#home").slice(1), page = PAGES.includes(h) ? h : "home";
+    PAGES.forEach(p => $(p).classList.toggle("hide", p !== page));
+    if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
     if (page !== "scan") { /* images are never stored: nothing to clean up */ }
     renderAll(); window.scrollTo(0, 0);
   }
-  addEventListener("hashchange", route); route(); refreshFx();
+  addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
+  setInterval(checkReminders, 30 * 60 * 1000);
 })();

@@ -55,6 +55,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 .filebtn{position:relative}.filebtn input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
 .logo{width:40px;height:40px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none}
 .due{background:var(--card);border:2px solid var(--sun);border-radius:14px;padding:14px 16px;margin-bottom:12px}.due .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.due .btn{padding:10px 14px;font-size:15px}.due input[type=date]{font:400 16px var(--body);padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);margin-top:4px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:20}.modal.hide{display:none}.sheet{width:100%;max-width:720px;max-height:90vh;overflow:auto;margin:0;border-radius:16px 16px 0 0}
 .logo.letter{border:0;font:800 18px var(--head)}
 </style>
 </head>
@@ -91,11 +92,12 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   </div>
   <p class="note" id="fx-note"></p>
   <div id="due-box"></div>
+  <div id="remind-box"></div>
   <h2>Upcoming renewals</h2>
   <div class="renewals" id="dash-list"></div>
   <p class="note" id="unpriced"></p>
   <div class="empty">
-    <a class="btn" href="#scan">Scan a screenshot</a>
+    <a class="btn" href="#scan">Scan a screenshot</a> <a class="btn ghost" href="#settings">Reminder settings</a>
   </div>
 </main>
 
@@ -111,6 +113,30 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
     <details><summary>What we read</summary><pre id="raw"></pre></details>
   </div>
 </main>
+
+<!-- SETTINGS -->
+<main id="settings" class="hide">
+  <h1 style="font-size:34px">Reminders</h1>
+  <p class="lead" style="font-size:16px">Choose when to be reminded before a subscription charges you.</p>
+  <div class="card">
+    <b>Remind me</b>
+    <label class="inc"><input type="checkbox" data-d="7"> 7 days before</label>
+    <label class="inc"><input type="checkbox" data-d="3"> 3 days before</label>
+    <label class="inc"><input type="checkbox" data-d="1"> 1 day before</label>
+    <label class="inc"><input type="checkbox" data-d="0"> On the day</label>
+    <p class="note" style="margin:0">These show in “Charging soon” on your dashboard.</p>
+  </div>
+  <div class="card">
+    <b>Phone / browser notifications</b>
+    <p class="note" id="notif-status" style="margin:0"></p>
+    <button class="btn" id="notif-btn">Turn on notifications</button>
+    <button class="btn ghost" id="notif-test">Send a test</button>
+    <p class="note" style="margin:0">Notifications appear when you have opened the app recently. They can’t arrive while it is fully closed yet. On iPhone, first add this site to your Home Screen.</p>
+  </div>
+  <p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
+</main>
+
+<div id="editor" class="modal hide" role="dialog" aria-modal="true" aria-label="Edit subscription"><div class="card sheet" id="edit-form"></div></div>
 
 <footer><span data-app-name></span> · <span data-tagline></span><br>Logos belong to their respective owners. This app is not affiliated with them. Exchange rates by <a href="https://www.exchangerate-api.com" rel="noopener">Exchange Rate API</a>.</footer>
 </div>
