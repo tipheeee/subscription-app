@@ -4,5 +4,5 @@ window.APP_CONFIG = {
   tagline: "Your heads up before every charge.",
   defaultCurrency: "NGN",
   // Reminder server address (see reminder-server/SETUP.md). Leave as "" to keep reminders on this device only.
-  pushApi: ""
+  pushApi: "https://yanju-reminders.olaoluwaoluwatoyin0.workers.dev/"
 };
