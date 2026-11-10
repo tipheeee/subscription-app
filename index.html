@@ -133,7 +133,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
     <div class="two2"><label>Morning<input type="time" id="t-am"></label><label>Evening<input type="time" id="t-pm"></label></div>
     <label class="inc"><input type="checkbox" id="pm-on"> Also remind me in the evening (twice a day)</label>
     <button class="btn ghost" id="notif-test">Send a test</button>
-    <p class="note" style="margin:0">Push reminders come on the days you chose above. They arrive when you have opened the app recently. They can’t arrive while it is fully closed yet. On iPhone, first add this site to your Home Screen.</p>
+    <p class="note" id="push-note" style="margin:0"></p>
   </div>
   <div class="card">
     <b>📅 Calendar</b>
@@ -145,7 +145,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   <div class="card">
     <div class="ch-head"><b>✉️ Email</b><span class="badge">Not active yet</span></div>
     <label>Your email address<input type="email" id="email-addr" placeholder="you@example.com" autocomplete="email"></label>
-    <p class="note" style="margin:0">Your address is saved on this device. Emails start once the online server is connected (next step).</p>
+    <p class="note" style="margin:0">Your address is saved on this device. Emails need a domain name for the sender address, so they start after one is bought.</p>
   </div>
   <div class="card off">
     <div class="ch-head"><b>💬 WhatsApp</b><span class="badge">Coming soon</span></div>

@@ -186,7 +186,7 @@
   const DEFAULTS = { days: [3, 0], am: "09:00", pm: "18:00", pmOn: true, calAsk: true, email: "" };
   const prefs = () => { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || "null"); if (p && Array.isArray(p.days)) return Object.assign({}, DEFAULTS, p); } catch (e) {} return Object.assign({}, DEFAULTS); };
   const savePrefs = p => { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch (e) {} };
-  const upd = patch => savePrefs(Object.assign(prefs(), patch));
+  const upd = patch => { savePrefs(Object.assign(prefs(), patch)); if (!("serverOn" in patch)) scheduleSync(); };
   // Push is on if the person switched it on; for people who allowed notifications before this setting existed, it counts as on.
   const pushOn = p => p.push !== undefined ? p.push : (canNotify() && Notification.permission === "granted");
   const loadSent = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY) || "[]"); } catch (e) { return []; } };
@@ -214,6 +214,7 @@
   function checkReminders(now = new Date()) {
     const p = prefs();
     if (!pushOn(p) || !canNotify() || Notification.permission !== "granted") return;
+    if (p.serverOn) return;   // the reminder server is sending these (also when the app is closed)
     const mins = now.getHours() * 60 + now.getMinutes(), today = ymd(now);
     const tm = t => { const [h, m] = String(t).split(":").map(Number); return h * 60 + (m || 0); };
     const slots = [["am", p.am || "09:00"]]; if (p.pmOn !== false) slots.push(["pm", p.pm || "18:00"]);
@@ -230,6 +231,48 @@
     });
     if (fresh.length) { try { localStorage.setItem(SENT_KEY, JSON.stringify(sent.concat(fresh).slice(-400))); } catch (e) {} }
   }
+  // ---------- Reminder server (optional): reminders even when the app is closed ----------
+  // Switched on by setting pushApi in config.js. Sends subscription names, prices and dates (never screenshots) so the server can send the reminders.
+  const API = () => String(cfg.pushApi || "").replace(/\/$/, "");
+  const deviceId = () => { try { let d = localStorage.getItem("device.id"); if (!d) { d = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem("device.id", d); } return d; } catch (e) { return ""; } };
+  const b64uBytes = b => { const t = b.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - b.length % 4) % 4), bin = atob(t), o = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i); return o; };
+  const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise((_, no) => setTimeout(() => no(new Error("service worker not ready")), 6000))]);
+  const postJson = (path, body) => fetch(API() + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let lastSync = "", syncTimer = null;
+  function scheduleSync() { if (!API()) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncServer(), 1500); }
+  async function syncServer(force) {
+    const p = prefs();
+    if (!API() || !("PushManager" in window) || !("serviceWorker" in navigator) || !canNotify()) return;
+    if (!pushOn(p) || Notification.permission !== "granted") return;
+    try {
+      const reg = await swReady();
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const k = await (await fetch(API() + "/api/push/key")).json();
+        if (!k || !k.key) throw new Error("no key");
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(k.key) });
+      }
+      const body = { device: deviceId(), sub: sub.toJSON(), tz: new Date().getTimezoneOffset(), prefs: { days: p.days, am: p.am, pm: p.pm, pmOn: p.pmOn !== false },
+        subs: Store.load().filter(x => x.status === "active" && x.date).map(x => ({ id: x.id, name: x.name, amount: x.amount, currency: x.currency, freq: x.freq, date: x.date })) };
+      const text = JSON.stringify(body);
+      if (force || text !== lastSync) {
+        const r = await postJson("/api/push/sync", body);
+        if (!r.ok) throw new Error("server said " + r.status);
+        lastSync = text;
+      }
+      if (!p.serverOn) { upd({ serverOn: true }); if ($("settings") && !$("settings").classList.contains("hide")) renderSettings(); }
+    } catch (e) { if (prefs().serverOn) { upd({ serverOn: false }); } }
+  }
+  async function unsubServer() {
+    if (!API()) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration(), sub = reg && await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      await postJson("/api/push/unsub", { device: deviceId() });
+    } catch (e) {}
+    lastSync = "";
+  }
+
   function renderSettings() {
     const p = prefs(), granted = canNotify() && Notification.permission === "granted";
     document.querySelectorAll("[data-d]").forEach(c => { c.checked = p.days.includes(+c.dataset.d); });
@@ -238,7 +281,11 @@
     $("cal-ask").checked = p.calAsk !== false; $("email-addr").value = p.email || "";
     $("notif-status").textContent = !canNotify() ? "This browser doesn’t support notifications. Use the calendar option instead."
       : Notification.permission === "denied" ? "Notifications are blocked. Allow them for this site in your browser’s site settings, then come back."
-      : $("push-on").checked ? "Push notifications are on." : "Push notifications are off.";
+      : $("push-on").checked ? (p.serverOn ? "Push notifications are on, including when the app is closed." : "Push notifications are on.") : "Push notifications are off.";
+    const iph = " On iPhone, first add this site to your Home Screen.";
+    $("push-note").textContent = API()
+      ? (p.serverOn ? "Reminders arrive even when the app is closed. To do this, your subscription names, prices and dates (never your screenshots) are sent to the reminder server." : "Turn push on to get reminders even when the app is closed. This sends your subscription names, prices and dates (never your screenshots) to the reminder server.") + iph
+      : "Reminders arrive when you have opened the app recently. They can’t arrive while it is fully closed yet." + iph;
     $("notif-test").classList.toggle("hide", !$("push-on").checked);
   }
   document.querySelectorAll("[data-d]").forEach(c => c.addEventListener("change", () => {
@@ -249,15 +296,20 @@
     if (ev.target.checked) {
       let r = "denied"; try { r = canNotify() ? await Notification.requestPermission() : "denied"; } catch (e) {}
       upd({ push: r === "granted" });
-    } else upd({ push: false });
-    renderSettings(); checkReminders();
+    } else { upd({ push: false, serverOn: false }); unsubServer(); }
+    renderSettings(); checkReminders(); syncServer(true);
   });
   $("t-am").addEventListener("change", ev => upd({ am: ev.target.value || "09:00" }));
   $("t-pm").addEventListener("change", ev => upd({ pm: ev.target.value || "18:00" }));
   $("pm-on").addEventListener("change", ev => upd({ pmOn: ev.target.checked }));
   $("cal-ask").addEventListener("change", ev => upd({ calAsk: ev.target.checked }));
   $("email-addr").addEventListener("change", ev => upd({ email: ev.target.value.trim() }));
-  $("notif-test").addEventListener("click", () => {
+  $("notif-test").addEventListener("click", async () => {
+    if (prefs().serverOn) {   // test the real route: the message comes from the server
+      try { const r = await postJson("/api/push/test", { device: deviceId() }); $("notif-status").textContent = r.ok ? "Test sent from the server. It should arrive in a few seconds, even if you close the app." : "The server couldn’t send the test. Try again in a minute."; }
+      catch (e) { $("notif-status").textContent = "Couldn’t reach the reminder server."; }
+      return;
+    }
     // Uses your soonest real subscription, so you see a real reminder (marked as a test).
     const next = Store.load().filter(x => x.status === "active" && x.date && daysTo(x.date) >= 0).sort((a, b) => a.date.localeCompare(b.date))[0];
     const m = next ? reminderMsg(next, daysTo(next.date)) : { title: "Netflix charges in 3 days", body: "NGN 4,400.00 · monthly. Tap to open and review." };
@@ -278,7 +330,7 @@
       const start = x.date < isoIn(0) ? nextCharge(x) : x.date;
       const end = ymd(new Date(+start.slice(0, 4), +start.slice(5, 7) - 1, +start.slice(8, 10) + 1));
       const price = x.amount != null && x.currency ? " (" + money(x.amount, x.currency) + ")" : "";
-      const L = ["BEGIN:VEVENT", `UID:${x.id}@shieldpay`, `DTSTAMP:${stamp}`, `SEQUENCE:${Math.floor(Date.now() / 1000)}`,
+      const L = ["BEGIN:VEVENT", `UID:${x.id}@yanju`, `DTSTAMP:${stamp}`, `SEQUENCE:${Math.floor(Date.now() / 1000)}`,
         `DTSTART;VALUE=DATE:${start.replace(/-/g, "")}`, `DTEND;VALUE=DATE:${end.replace(/-/g, "")}`];
       if (rec) L.push("RRULE:" + RULE[x.freq] + (x.expiry && x.expiry >= start ? ";UNTIL=" + x.expiry.replace(/-/g, "") : ""));
       L.push("SUMMARY:" + icsText(`${x.name} charges${price}`), "DESCRIPTION:" + icsText(`Subscription renewal. Open ${cfg.name} to mark it renewed or cancelled.`));
@@ -355,6 +407,7 @@
     if (mixed && sum != null) fxNote = `Everything is converted to ${target} at about today’s rates${fx && fx.at ? " (updated " + new Date(fx.at).toLocaleDateString() + ")" : ""}. Real charges will differ a little.` + (skipped.length ? ` Not counted, no rate for: ${skipped.join(", ")}.` : "");
     else if (mixed) fxNote = "Exchange rates couldn’t load, so each currency is shown separately. Open the app with internet to convert.";
     $("fx-note").textContent = fxNote;
+    scheduleSync();
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
 

@@ -8,3 +8,8 @@ self.addEventListener("notificationclick", e => {
     return self.clients.openWindow("./#dashboard");
   }));
 });
+// A reminder sent by the reminder server (works even when the app is closed).
+self.addEventListener("push", e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (x) {}
+  e.waitUntil(self.registration.showNotification(d.title || "Subscription reminder", { body: d.body || "Open the app to review your subscriptions.", tag: d.tag }));
+});
