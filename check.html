@@ -13,7 +13,7 @@
   try { const r = await fetch("index.html" + bust, { cache: "no-store" }); html = await r.text(); add(r.ok && html.length > 500, "index.html (" + r.status + ", " + html.length + " characters)"); }
   catch (e) { add(false, "index.html could not be read: " + e.message); }
   const srcs = Array.from(html.matchAll(/<script[^>]+src="([^"]+)"/g)).map(m => m[1]).filter(s => !/^https?:/.test(s));
-  const need = ["config.js", "logos.js", "parser.js", "store.js", "app.js", "preprocess.js"];
+  const need = ["config.js", "logos.js", "parser.js", "store.js", "insights.js", "app.js", "preprocess.js"];
   need.forEach(n => { if (n !== "preprocess.js" && !srcs.includes(n)) add(false, "index.html does not load " + n); });
   for (const n of need) {
     try {
