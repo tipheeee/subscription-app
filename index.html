@@ -75,6 +75,14 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 .bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--teal);border-radius:99px}
 .card.empty{justify-items:center;text-align:center}
 .exports{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+.altlink{display:inline-block;margin-top:2px;font-size:14px;font-weight:700;color:var(--teal);text-decoration:none}.altlink:hover{text-decoration:underline}
+.alt-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;display:grid;gap:8px}
+.alt-head{display:flex;gap:12px;align-items:center}.alt-head .n{min-width:0;flex:1;overflow-wrap:anywhere}.alt-head b{font:600 18px var(--head)}
+.alt-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.tag{font:700 12px var(--body);padding:3px 9px;border-radius:99px;background:var(--line);color:var(--ink)}.tag.good{background:var(--teal);color:#fff}.tag.warn{background:var(--sun);color:#3A2A00}
+@media(prefers-color-scheme:dark){.tag.good{color:#0E1A1C}}
+.alt-desc,.alt-why,.alt-price{margin:0}.alt-why{color:var(--mute);font-size:14px}.alt-price small{display:block;color:var(--mute);font-size:13px;font-weight:400}.alt-price a{color:var(--teal);font-weight:700}.muted{color:var(--mute)}
+.alt-links{display:flex;gap:8px;flex-wrap:wrap}.alt-links .btn{padding:10px 14px;font-size:15px;min-height:44px}
 </style>
 </head>
 <body>
@@ -191,6 +199,9 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   <p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
 </main>
 
+<!-- ALTERNATIVES -->
+<main id="alternatives" class="hide" aria-live="polite"></main>
+
 <div id="editor" class="modal hide" role="dialog" aria-modal="true" aria-label="Edit subscription"><div class="card sheet" id="edit-form"></div></div>
 
 <footer><span data-app-name></span> · <span data-tagline></span><br>Logos belong to their respective owners. This app is not affiliated with them. Exchange rates by <a href="https://www.exchangerate-api.com" rel="noopener">Exchange Rate API</a>.</footer>
@@ -202,6 +213,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 <script src="parser.js"></script>
 <script src="store.js"></script>
 <script src="insights.js"></script>
+<script src="alternatives.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

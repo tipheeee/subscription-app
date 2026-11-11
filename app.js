@@ -379,7 +379,8 @@
       else { const n = daysTo(s.date); chip = n < 0 ? `<span class="chip late">Date passed</span>` : `<span class="chip ${n <= 3 ? "late" : n > 14 ? "far" : ""}">in ${n} day${n === 1 ? "" : "s"}</span>`; }
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
       const sub = [s.plan, s.freq, s.use === "business" ? "Business" : s.use === "personal" ? "Personal" : "", s.expiry ? "ends " + fmtDate(s.expiry) : ""].filter(Boolean).map(esc).join(" · ");
-      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small></div>
+      const altKey = s.id ? s.id : "n:" + (s.name || "");
+      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small><a class="altlink" href="#alternatives/${encodeURIComponent(altKey)}">See alternatives</a></div>
         <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}">✎</button><button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
   }
@@ -729,14 +730,23 @@
   });
 
   // ---------- Pages ----------
-  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings"];
+  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives"];
+  function showAlternatives(key) {
+    const real = Store.load().find(x => x.id === key);
+    const name = real ? real.name : key.replace(/^n:/, "");
+    const s = real || sample().find(x => x.name === name) || { name };
+    window.Alternatives.show({ name, amount: s.amount, currency: s.currency, freq: s.freq, cat: Insights.catOf(real || { name }) },
+      { el: $("alternatives"), esc, logoHtml, money, fmtDate, cfg });
+  }
   function route() {
-    const h = (location.hash || "#home").slice(1), page = PAGES.includes(h) ? h : "home";
+    const raw = (location.hash || "#home").slice(1), h = raw.split("/")[0], page = PAGES.includes(h) ? h : "home";
+    if (page !== "alternatives" && window.Alternatives) window.Alternatives.stop();
     PAGES.forEach(p => $(p).classList.toggle("hide", p !== page));
     if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
     if (page !== "scan") { /* images are never stored: nothing to clean up */ }
     renderAll(); window.scrollTo(0, 0);
+    if (page === "alternatives") { let k = ""; try { k = decodeURIComponent(raw.slice(raw.indexOf("/") + 1)); } catch (e) { k = ""; } if (raw.includes("/") && k) showAlternatives(k); else location.hash = "#dashboard"; }
   }
   addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
