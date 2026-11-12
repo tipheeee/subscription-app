@@ -22,13 +22,14 @@
     return "Not listed";
   }
 
-  function cardHtml(it, where) {
+  function cardHtml(it) {
     const site = safeUrl(it.website);
     // "available" is only shown when the server has real evidence. Until then every product is honestly "Unverified".
     const state = it.availability === "available" ? "available" : "unverified";
     const badge = state === "available" ? `<span class="alt-badge ok">Available</span>` : `<span class="alt-badge unv">Unverified</span>`;
     const sub = it.category || (it.platforms && it.platforms.length ? "Works on " + it.platforms.slice(0, 3).join(", ") : "");
-    const pricing = site ? `<a href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Check current pricing</a>` : `<b>Check current pricing</b>`;
+    const priceLink = safeUrl(it.pricingUrl) || site;
+    const pricing = priceLink ? `<a href="${H.esc(priceLink)}" target="_blank" rel="noopener noreferrer">Check current pricing</a>` : `<b>Check current pricing</b>`;
     return `<article class="alt-card">
       <div class="alt-top">${logoFor(it)}<div class="n"><b>${H.esc(it.name)}</b>${sub ? `<div class="alt-sub">${H.esc(sub)}</div>` : ""}</div>${badge}</div>
       <div class="alt-rows">
@@ -37,7 +38,6 @@
       </div>
       ${it.blurb ? `<p class="alt-blurb">${H.esc(it.blurb)}</p>` : ""}
       ${isFreeish(it) ? `<p class="alt-good">Potential free alternative</p>` : ""}
-      ${state === "unverified" ? `<p class="alt-warn">Availability and payment support ${H.esc(where)} have not been confirmed.</p>` : ""}
       ${it.needsSetup ? `<p class="alt-warn">Needs technical setup. You run it yourself, so you may need to pay for hosting.</p>` : ""}
       ${site ? `<a class="btn ghost alt-go" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Explore alternative <span aria-hidden="true">↗</span></a>` : ""}
     </article>`;
@@ -64,8 +64,9 @@
     const where = name ? "in " + name : "in your country";
     box.innerHTML = title +
       `<p class="lead" style="font-size:16px">Looking for alternatives to ${H.esc(S.sub.name)}? Here are some options worth exploring.</p>` +
+      (list.slice(0, n).some(i => i.availability !== "available") ? `<p class="alt-cnote">Please check that these are available ${H.esc(where)}, and that you can pay for them, before you sign up.</p>` : "") +
       (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") +
-      list.slice(0, n).map(i => cardHtml(i, where)).join("") +
+      list.slice(0, n).map(cardHtml).join("") +
       (more ? `<p><button class="btn" id="alt-more"${S.loadingMore ? " disabled" : ""}>${S.loadingMore ? "Loading…" : "See more alternatives"}</button></p>` : "") +
       (S.stale ? `<p class="note">Showing saved results. We couldn’t refresh them just now.</p>` : "") +
       `<p class="note">Availability is checked automatically from each product’s own website and may not be exact. Plans and prices differ by country, so check the website before you sign up. Suggestions use public data from AlternativeTo.</p>` +

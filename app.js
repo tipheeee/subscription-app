@@ -382,7 +382,7 @@
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
       const sub = [s.plan, s.freq, s.use === "business" ? "Business" : s.use === "personal" ? "Personal" : "", s.expiry ? "ends " + fmtDate(s.expiry) : ""].filter(Boolean).map(esc).join(" · ");
       const altKey = s.id ? s.id : "n:" + (s.name || "");
-      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small><a class="altlink" href="#alternatives/${encodeURIComponent(altKey)}">See alternatives</a></div>
+      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small><a class="altlink" href="#alternatives/${encodeURIComponent(altKey)}">Explore alternatives</a></div>
         <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}">✎</button><button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
   }
