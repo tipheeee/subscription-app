@@ -5,6 +5,6 @@ window.APP_CONFIG = {
   defaultCurrency: "NGN",
   // Reminder server address (see reminder-server/SETUP.md). Leave as "" to keep reminders on this device only.
   // Alternatives server address (see alternatives-worker/SETUP.md). Leave as "" to hide results until it is set up.
-  altApi: "",
+  altApi: "https://yanju-alternatives.olaoluwaoluwatoyin0.workers.dev/",
   pushApi: "https://yanju-reminders.olaoluwaoluwatoyin0.workers.dev/"
 };
