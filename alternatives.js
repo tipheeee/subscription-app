@@ -97,7 +97,8 @@
       box.innerHTML = head + `<p class="lead" style="font-size:16px">We couldn’t find good alternatives to ${H.esc(S.sub.name)} yet.</p><p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
     }
     const more = hiddenCount > 0 || S.hasMore;
-    box.innerHTML = head + `<p class="lead" style="font-size:16px">Yanju found other tools you might like instead of ${H.esc(S.sub.name)}.</p>` + html +
+    box.innerHTML = head + `<p class="lead" style="font-size:16px">Yanju found other tools you might like instead of ${H.esc(S.sub.name)}.</p>` +
+      (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") + html +
       (more ? `<p><button class="btn" id="alt-more"${S.loadingMore ? " disabled" : ""}>${S.loadingMore ? "Loading…" : "See more alternatives"}</button></p>` : "") +
       (S.stale ? `<p class="note">Showing saved results. We couldn’t refresh them just now.</p>` : "") +
       `<p class="note">Prices are read from each product’s own website and can be different in your country. Always check the pricing page before you switch. Suggestions use public data from AlternativeTo.</p>` +
@@ -124,7 +125,7 @@
     S.state = "loading"; render();
     try {
       const b = await fetchPage(1); if (my !== run) return;
-      Object.assign(S, { state: "ready", items: b.items, page: 1, hasMore: !!b.hasMore, stale: !!b.stale, expanded: false });
+      Object.assign(S, { state: "ready", items: b.items, page: 1, hasMore: !!b.hasMore, stale: !!b.stale, fallback: !!b.fallback, expanded: false });
       render(); if (b.pricingPending) poll(my, 0);
     } catch (e) { if (my !== run) return; S.state = "error"; S.reason = e.reason; render(); }
   }
