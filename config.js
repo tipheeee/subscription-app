@@ -4,7 +4,7 @@ window.APP_CONFIG = {
   tagline: "Your heads up before every charge.",
   defaultCurrency: "NGN",
   // Alternatives server address. Leave as "" to hide results until it is set up.
-  altApi: "https://yanju-reminders.olaoluwaoluwatoyin0.workers.dev/",
+  altApi: "https://yanju-alternatives.olaoluwaoluwatoyin0.workers.dev/",
   // Reminder server address. Leave as "" to keep reminders on this device only.
   pushApi: "https://yanju-reminders.olaoluwaoluwatoyin0.workers.dev/"
 };
