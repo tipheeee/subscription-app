@@ -3,6 +3,10 @@
 (function () {
   const PAGE_SHORT = { free: 3, cheaper: 2, similar: 3 };
   let H = null, S = null, run = 0, timer = null;
+  // Products the person says are not available where they live. Kept on this device only.
+  const HID = "alt.hidden.v1";
+  const hidden = () => { try { return JSON.parse(localStorage.getItem(HID) || "[]"); } catch (e) { return []; } };
+  const hide = slug => { try { const h = hidden(); if (!h.includes(slug)) { h.push(slug); localStorage.setItem(HID, JSON.stringify(h.slice(-200))); } } catch (e) { /* ignore */ } };
 
   const PER = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
   const safeUrl = u => { try { const x = new URL(u); return x.protocol === "https:" || x.protocol === "http:" ? x.href : ""; } catch (e) { return ""; } };
@@ -37,7 +41,7 @@
   }
 
   function priceHtml(it, cheaper) {
-    const pr = it.price || { status: "unavailable" }, link = safeUrl(pr.pricingUrl || it.website);
+    const pr = it.price || { status: "unavailable" }, link = pr.status === "verified" ? safeUrl(pr.pricingUrl) : safeUrl(it.website);
     if (pr.status === "pending") return `<p class="alt-price muted">Checking price…</p>`;
     const p = lowestPaid(it);
     if (p) {
@@ -49,7 +53,7 @@
   }
 
   function cardHtml(it, cheaper) {
-    const site = safeUrl(it.website), pricing = safeUrl(it.price && it.price.pricingUrl);
+    const site = safeUrl(it.website), pricing = it.price && it.price.status === "verified" ? safeUrl(it.price.pricingUrl) : "";
     const tags = labelsFor(it, cheaper).map(([t, k]) => `<span class="tag ${k}">${H.esc(t)}</span>`).join("");
     const why = whyLine(it);
     const links = [site ? `<a class="btn ghost" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Visit website</a>` : "",
@@ -60,7 +64,8 @@
       ${why ? `<p class="alt-why">${H.esc(why)}</p>` : ""}
       ${it.needsSetup ? `<p class="note" style="margin:0">You run this yourself, so you may need to pay for hosting.</p>` : ""}
       ${priceHtml(it, cheaper)}
-      ${links ? `<div class="alt-links">${links}</div>` : ""}</article>`;
+      ${links ? `<div class="alt-links">${links}</div>` : ""}
+      <button class="altlink alt-hide" data-hide="${H.esc(it.slug)}" style="background:none;border:0;padding:0;text-align:left;cursor:pointer">Not available in my country</button></article>`;
   }
 
   // Each product appears once, under the first group it fits: free, then cheaper, then similar.
@@ -84,7 +89,8 @@
       const msg = S.reason === "not_configured" ? "Alternatives aren’t switched on yet." : S.reason === "busy" ? "Alternatives are busy right now. Try again in a few minutes." : "We couldn’t load alternatives right now. Check your connection and try again.";
       box.innerHTML = head + `<p class="lead" style="font-size:16px">${H.esc(msg)}</p><p><button class="btn" id="alt-retry">Try again</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
     }
-    const g = group(S.items, S.sub);
+    const gone = hidden();
+    const g = group(S.items.filter(i => !gone.includes(i.slug)), S.sub);
     let shown = 0, hiddenCount = 0, html = "";
     for (const k of ["free", "cheaper", "similar"]) {
       const list = g[k], n = S.expanded ? list.length : Math.min(list.length, PAGE_SHORT[k]);
@@ -101,7 +107,7 @@
       (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") + html +
       (more ? `<p><button class="btn" id="alt-more"${S.loadingMore ? " disabled" : ""}>${S.loadingMore ? "Loading…" : "See more alternatives"}</button></p>` : "") +
       (S.stale ? `<p class="note">Showing saved results. We couldn’t refresh them just now.</p>` : "") +
-      `<p class="note">Prices are read from each product’s own website and can be different in your country. Always check the pricing page before you switch. Suggestions use public data from AlternativeTo.</p>` +
+      `<p class="note">Prices are read from each product’s own website and can be different in your country. Some products are not available in every country, so check the website before you sign up. If one isn’t available where you live, tap “Not available in my country” to hide it. Suggestions use public data from AlternativeTo.</p>` +
       `<p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`;
   }
 
@@ -147,9 +153,10 @@
   }
 
   async function more() {
-    const g = group(S.items, S.sub);
-    const hidden = ["free", "cheaper", "similar"].some(k => g[k].length > PAGE_SHORT[k]);
-    if (!S.expanded && hidden) { S.expanded = true; render(); return; }
+    const gone = hidden();
+    const g = group(S.items.filter(i => !gone.includes(i.slug)), S.sub);
+    const anyHidden = ["free", "cheaper", "similar"].some(k => g[k].length > PAGE_SHORT[k]);
+    if (!S.expanded && anyHidden) { S.expanded = true; render(); return; }
     S.expanded = true;
     if (!S.hasMore) { render(); return; }
     S.loadingMore = true; render();
@@ -169,7 +176,9 @@
       if (!H.el.dataset.bound) {
         H.el.dataset.bound = "1";
         H.el.addEventListener("click", e => {
-          if (e.target.closest("#alt-more")) more();
+          const hb = e.target.closest("[data-hide]");
+          if (hb) { hide(hb.getAttribute("data-hide")); render(); }
+          else if (e.target.closest("#alt-more")) more();
           else if (e.target.closest("#alt-retry")) load();
         });
       }

@@ -229,8 +229,9 @@ async function lookupPricing(official, f = fetch, now = new Date()) {
       if (!robotsAllows(robots, p)) return Object.assign(base, { status: "blocked" });
       let page; try { page = await getText(origin + p, f); } catch (e) { continue; }
       if (!page.ok) continue;
-      base.pricingUrl = page.url;
       const plans = extractPlans(page.text);
+      // Only a page where a price was really read counts as the pricing page. A guessed address such as /pricing
+      // can be something else entirely (on some sites it is a user's profile), so it is never shown otherwise.
       if (plans.length) return { status: "verified", pricingUrl: page.url, plans, checkedAt, region: plans.some(x => x.currency === "NGN") ? "NG" : "international" };
       return base; // page exists but its prices cannot be read reliably
     }
@@ -252,6 +253,21 @@ const KNOWN_SLUGS = { canva: "canva" }; // only slugs confirmed against the real
 // When a service is not listed at all (for example a local service), we use a well-known service in the same
 // category as a stand-in, so the person still sees useful alternatives. Names are searched, never guessed as slugs.
 const ANCHORS = { video: "Netflix", music: "Spotify", design: "Canva", ai: "ChatGPT", work: "Microsoft Office", web: "Wix", storage: "Dropbox", learn: "Coursera", security: "NordVPN" };
+// Products that are known to be sold only in certain countries (ISO codes). Nothing in our data sources says where a
+// product is available, so this short list is kept by hand. Everything else is shown, with a note to check the website.
+const REGION_ONLY = { pandora: ["US"], hulu: ["US", "JP"], peacock: ["US"], "sling tv": ["US"], philo: ["US"] };
+const CODE_HOSTS = /(^|\.)(github\.com|gitlab\.com|codeberg\.org|sourceforge\.net|f-droid\.org|play\.google\.com|apps\.apple\.com|microsoft\.com|addons\.mozilla\.org|chromewebstore\.google\.com)$/;
+// Send people to the product's main website. Deep links (web players, app pages, tracking links) often fail on a phone.
+function cleanSite(u) {
+  try {
+    const x = new URL(u); if (x.protocol !== "https:" && x.protocol !== "http:") return null;
+    let host = x.hostname.toLowerCase();
+    if (CODE_HOSTS.test(host)) return "https://" + host + x.pathname.replace(/\/+$/, "");
+    const parts = host.split(".");
+    if (parts.length > 2 && /^(open|play|app|web|listen|go|my|m|get)$/.test(parts[0])) host = parts.slice(1).join(".");
+    return "https://" + host + "/";
+  } catch (e) { return null; }
+}
 const trimRaw = p => ({ slug: p.slug, name: p.name, description: String(p.description || "").slice(0, 300), likes: p.likes, license_cost: p.license_cost,
   license_model: p.license_model, license: p.license, platforms: p.platforms, categories: (p.categories || []).slice(0, 5), highlights: (p.highlights || []).slice(0, 2), company: p.company });
 
@@ -328,14 +344,14 @@ async function getList(env, c, slug, name, page, f) {
 
 // ---- prices -----------------------------------------------------------------------
 async function priceFor(env, c, slug, f, now) {
-  const hit = await c.get("price:" + slug);
+  const hit = await c.get("price:v2:" + slug);
   if (hit && hit.status === "pending") return hit.at && now - hit.at < TTL.lock * 1000 ? hit : null;
   return hit;
 }
 
 async function enrichOne(env, c, it, f) {
   const now = Date.now();
-  await c.put("price:" + it.slug, { status: "pending", at: now }, TTL.lock);
+  await c.put("price:v2:" + it.slug, { status: "pending", at: now }, TTL.lock);
   let result = { status: "unavailable", pricingUrl: null, plans: [], checkedAt: new Date().toISOString().slice(0, 10) };
   try {
     let sw = await c.get("sw:" + it.slug);
@@ -345,11 +361,12 @@ async function enrichOne(env, c, it, f) {
       sw = { website: off ? off.url : (d && d.company && d.company.url) || null };
       await c.put("sw:" + it.slug, sw, TTL.sw);
     }
-    if (sw.website) result = Object.assign(await lookupPricing(sw.website, f), { website: sw.website });
+    const site = sw.website ? cleanSite(sw.website) : null;
+    if (site) { result = await lookupPricing(site, f); result.website = site; if (result.status !== "verified") result.pricingUrl = null; }
     else result.website = null;
   } catch (e) { result.error = e.code || "error"; }
   const ok = result.status === "verified";
-  await c.put("price:" + it.slug, result, ok ? TTL.priceOk : TTL.priceNo);
+  await c.put("price:v2:" + it.slug, result, ok ? TTL.priceOk : TTL.priceNo);
   return result;
 }
 
@@ -384,7 +401,9 @@ async function handle(req, env, ctx, f = fetch) {
     if (fallback && page === 1 && match.raw) {   // the stand-in itself is a fair alternative to the service we could not find
       pool = rank(filterItems(pool.concat([normalizeItem(match.raw, list.primary)]), service));
     }
-    const shown = pool.slice(0, 12);
+    const country = String((req.cf && req.cf.country) || req.headers.get("cf-ipcountry") || "").toUpperCase();
+    const here = x => { const only = REGION_ONLY[norm(x.name)]; return !(only && /^[A-Z]{2}$/.test(country) && !only.includes(country)); };
+    const shown = pool.filter(here).slice(0, 12);
     const out = []; const toEnrich = [];
     for (const it of shown) {
       const p = await priceFor(env, c, it.slug, f, now);
@@ -396,7 +415,7 @@ async function handle(req, env, ctx, f = fetch) {
     }
     if (toEnrich.length && ctx && ctx.waitUntil) ctx.waitUntil(Promise.allSettled(toEnrich.map(it => enrichOne(env, c, it, f))));
     else if (toEnrich.length) await Promise.allSettled(toEnrich.map(it => enrichOne(env, c, it, f)));
-    return json({ ok: true, service, matched: { slug: match.slug, name: match.name }, fallback, page, hasMore: list.hasMore, stale: list.stale, items: out,
+    return json({ ok: true, service, matched: { slug: match.slug, name: match.name }, fallback, country: country || null, page, hasMore: list.hasMore, stale: list.stale, items: out,
       pricingPending: out.some(i => i.price.status === "pending") }, 200, cors);
   } catch (e) {
     const reason = e.code === "limit" ? "busy" : e.code === "no_key" ? "not_configured" : "unavailable";
