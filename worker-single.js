@@ -118,137 +118,14 @@ function publicItem(x, extra) {
   return Object.assign(rest, extra || {});
 }
 
-// ===== pricing.js =====
-// Reads a product's own pricing page and keeps only prices it can read with confidence.
-// No AI. If anything is unclear the answer is "unavailable" and the app shows "Check current pricing".
-// Be polite: we identify ourselves, obey robots.txt, fetch at most two pages per product, and cache the result.
-
-const UA = "YanjuPriceCheck/1.0 (+subscription tracker; checks public pricing pages)";
-
-// ---- robots.txt ----------------------------------------------------------------
-function robotsAllows(txt, path) {
-  const groups = []; let cur = null, lastWasAgent = false;
-  for (const raw of String(txt || "").split(/\r?\n/)) {
-    const line = raw.replace(/#.*/, "").trim(); if (!line) continue;
-    const i = line.indexOf(":"); if (i < 0) continue;
-    const k = line.slice(0, i).trim().toLowerCase(), v = line.slice(i + 1).trim();
-    if (k === "user-agent") { if (!lastWasAgent) { cur = { agents: [], rules: [] }; groups.push(cur); } cur.agents.push(v.toLowerCase()); lastWasAgent = true; continue; }
-    lastWasAgent = false;
-    if (cur && (k === "allow" || k === "disallow")) cur.rules.push([k, v]);
-  }
-  const mine = groups.filter(g => g.agents.some(a => a !== "*" && "yanjupricecheck".includes(a) && a.length > 3));
-  const use = mine.length ? mine : groups.filter(g => g.agents.includes("*"));
-  let best = null;
-  for (const g of use) for (const [k, v] of g.rules) {
-    if (!v) continue;
-    const re = new RegExp("^" + v.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$"));
-    if (re.test(path) && (!best || v.length > best.len || (v.length === best.len && k === "allow"))) best = { len: v.length, allow: k === "allow" };
-  }
-  return best ? best.allow : true;
-}
-
-// ---- reading prices ------------------------------------------------------------
-const SYM = { "$": "USD", "US$": "USD", "\u20ac": "EUR", "\u00a3": "GBP", "\u20a6": "NGN", "R": "ZAR" };
-const CODE = /^(USD|EUR|GBP|NGN|ZAR|KES|GHS|CAD|AUD|INR)$/;
-const periodOf = s => {
-  s = String(s || "").toLowerCase();
-  if (/(^|\W)(mo|month|monthly|mon|p1m)(\W|$)/.test(s)) return "month";
-  if (/(^|\W)(yr|year|yearly|annual|annum|ann|p1y)(\W|$)/.test(s)) return "year";
-  return null;
-};
-
-function walk(node, out, depth = 0) {
-  if (!node || typeof node !== "object" || depth > 12) return;
-  if (Array.isArray(node)) { node.forEach(n => walk(n, out, depth + 1)); return; }
-  const t = [].concat(node["@type"] || []);
-  if (t.some(x => /Offer/i.test(String(x)))) {
-    const p = Number(node.price ?? node.lowPrice), c = String(node.priceCurrency || "").toUpperCase();
-    const ps = node.priceSpecification || {};
-    const per = periodOf(ps.billingDuration || ps.unitCode || ps.referenceQuantity && ps.referenceQuantity.unitCode || node.billingDuration);
-    if (isFinite(p) && p > 0 && CODE.test(c)) out.push({ name: node.name ? String(node.name).slice(0, 40) : null, amount: p, currency: c, period: per, ambiguous: false, how: "structured" });
-  }
-  for (const v of Object.values(node)) walk(v, out, depth + 1);
-}
-
-function extractPlans(html) {
-  html = String(html || "").slice(0, 1500000);
-  const plans = [];
-  // 1) Prices the site publishes in a machine-readable block: the most reliable source.
-  for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { walk(JSON.parse(m[1].trim()), plans); } catch (e) { /* ignore broken block */ }
-  }
-  // 2) Otherwise: prices written as "$12/month" in the page text, with the plan name taken from the heading above.
-  if (!plans.length) {
-    const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, " ")
-      .replace(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi, (_, h) => "\n##" + h.replace(/<[^>]+>/g, " ") + "\n")
-      .replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&euro;/g, "\u20ac").replace(/&pound;/g, "\u00a3").replace(/&#8358;/g, "\u20a6")
-      .replace(/[ \t\r\f]+/g, " ");
-    const re = /(US\$|\$|\u20ac|\u00a3|\u20a6|\b(?:USD|EUR|GBP|NGN)\b)\s?(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*(?:\/|per|a|\/\s*per)\s*(month|mo|year|yr|annum)\b/gi;
-    let m, n = 0;
-    while ((m = re.exec(text)) && n++ < 40) {
-      const before = text.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
-      if (/\b(save|saving|was|from)\b/.test(before) && /\b(save|was)\b/.test(before)) continue; // old or discount prices
-      const sym = m[1].toUpperCase(), amount = Number(m[2].replace(/,/g, ""));
-      if (!isFinite(amount) || amount <= 0) continue;
-      const head = text.slice(Math.max(0, m.index - 400), m.index).match(/##([^\n]{2,40})\n(?![\s\S]*##)/);
-      plans.push({ name: head ? head[1].trim() : null, amount, currency: SYM[m[1]] || (CODE.test(sym) ? sym : "USD"),
-        period: periodOf(m[3]), ambiguous: m[1] === "$", how: "page-text" });
-    }
-  }
-  // Keep each distinct price once, cheapest first, at most 4.
-  const seen = new Set(), out = [];
-  for (const p of plans.sort((a, b) => a.amount - b.amount)) {
-    const k = p.amount + p.currency + p.period;
-    if (seen.has(k)) continue; seen.add(k); out.push(p);
-  }
-  return out.slice(0, 4);
-}
-
-// ---- fetch with a size and time limit ------------------------------------------
-async function getText(url, f, ms = 6000) {
-  const r = await f(url, { headers: { "user-agent": UA, accept: "text/html,*/*;q=0.5" }, redirect: "follow", signal: AbortSignal.timeout(ms) });
-  if (!r.ok) return { ok: false, status: r.status };
-  const type = r.headers.get("content-type") || "";
-  if (type && !/text|html|json|xml/i.test(type)) return { ok: false, status: 415 };
-  return { ok: true, url: r.url || url, text: (await r.text()).slice(0, 1500000) };
-}
-
-const PATHS = ["/pricing", "/plans", "/pricing/"];
-
-// official: the product's own website address. Returns a result the app can show or ignore.
-async function lookupPricing(official, f = fetch, now = new Date()) {
-  const checkedAt = now.toISOString().slice(0, 10);
-  let origin;
-  try { const u = new URL(official); if (u.protocol !== "https:" && u.protocol !== "http:") throw 0; origin = u.origin.replace(/^http:/, "https:"); }
-  catch (e) { return { status: "unavailable", pricingUrl: null, plans: [], checkedAt }; }
-  const base = { status: "unavailable", pricingUrl: official, plans: [], checkedAt };
-  try {
-    let robots = ""; 
-    try { const r = await getText(origin + "/robots.txt", f, 4000); if (r.ok) robots = r.text; } catch (e) { /* no robots file: allowed */ }
-    for (const p of PATHS) {
-      if (!robotsAllows(robots, p)) return Object.assign(base, { status: "blocked" });
-      let page; try { page = await getText(origin + p, f); } catch (e) { continue; }
-      if (!page.ok) continue;
-      const plans = extractPlans(page.text);
-      // Only a page where a price was really read counts as the pricing page. A guessed address such as /pricing
-      // can be something else entirely (on some sites it is a user's profile), so it is never shown otherwise.
-      if (plans.length) return { status: "verified", pricingUrl: page.url, plans, checkedAt, region: plans.some(x => x.currency === "NGN") ? "NG" : "international" };
-      return base; // page exists but its prices cannot be read reliably
-    }
-  } catch (e) { /* fall through */ }
-  return base;
-}
-
 // ===== index.js =====
 // Yanju alternatives server (Cloudflare Worker).
 // The app asks for one service by name. This server finds alternatives, filters and ranks them, checks each
-// product's own pricing page, remembers the answers, and returns one simple list. Keys never leave this server.
-
+// product's own website, remembers the answers, and returns one simple list. Keys never leave this server.
 
 const BASE = "https://api.api.sh";
 const DAY = 86400;
-const TTL = { list: 30 * DAY, fresh: 7 * DAY, soft: 7 * DAY, sw: 90 * DAY, slug: 90 * DAY, priceOk: 7 * DAY, priceNo: 2 * DAY, lock: 300 };
-const PAGE_SIZE_SHOWN = 8;            // how many products per page get a price check (each costs one lookup credit)
+const TTL = { list: 30 * DAY, soft: 7 * DAY, sw: 90 * DAY, slug: 90 * DAY, err: 2 * DAY, lock: 300 };
 const KNOWN_SLUGS = { canva: "canva" }; // only slugs confirmed against the real service; the rest are searched once and remembered
 // When a service is not listed at all (for example a local service), we use a well-known service in the same
 // category as a stand-in, so the person still sees useful alternatives. Names are searched, never guessed as slugs.
@@ -342,32 +219,16 @@ async function getList(env, c, slug, name, page, f) {
   }
 }
 
-// ---- prices -----------------------------------------------------------------------
-async function priceFor(env, c, slug, f, now) {
-  const hit = await c.get("price:v2:" + slug);
-  if (hit && hit.status === "pending") return hit.at && now - hit.at < TTL.lock * 1000 ? hit : null;
-  return hit;
-}
-
-async function enrichOne(env, c, it, f) {
-  const now = Date.now();
-  await c.put("price:v2:" + it.slug, { status: "pending", at: now }, TTL.lock);
-  let result = { status: "unavailable", pricingUrl: null, plans: [], checkedAt: new Date().toISOString().slice(0, 10) };
+// ---- product websites (one lookup credit each, remembered for 90 days and shared by every service) ----
+async function lookupSite(env, c, it, f) {
+  const lock = await c.get("swlock:" + it.slug);
+  if (lock && Date.now() - lock.at < TTL.lock * 1000) return;      // another request is already doing it
+  await c.put("swlock:" + it.slug, { at: Date.now() }, TTL.lock);
   try {
-    let sw = await c.get("sw:" + it.slug);
-    if (!sw) {
-      const d = await apish(env, "/alternativeto/v1/software", { slug: it.slug }, f);
-      const off = ((d && d.links) || []).find(l => l && l.type === "Official");
-      sw = { website: off ? off.url : (d && d.company && d.company.url) || null };
-      await c.put("sw:" + it.slug, sw, TTL.sw);
-    }
-    const site = sw.website ? cleanSite(sw.website) : null;
-    if (site) { result = await lookupPricing(site, f); result.website = site; if (result.status !== "verified") result.pricingUrl = null; }
-    else result.website = null;
-  } catch (e) { result.error = e.code || "error"; }
-  const ok = result.status === "verified";
-  await c.put("price:v2:" + it.slug, result, ok ? TTL.priceOk : TTL.priceNo);
-  return result;
+    const d = await apish(env, "/alternativeto/v1/software", { slug: it.slug }, f);
+    const off = ((d && d.links) || []).find(l => l && l.type === "Official");
+    await c.put("sw:v2:" + it.slug, { website: off ? off.url : (d && d.company && d.company.url) || null }, TTL.sw);
+  } catch (e) { await c.put("sw:v2:" + it.slug, { website: null, error: e.code || "error" }, TTL.err); }
 }
 
 // ---- request handler ----------------------------------------------------------------
@@ -395,7 +256,7 @@ async function handle(req, env, ctx, f = fetch) {
     const cat = (url.searchParams.get("cat") || "").toLowerCase().slice(0, 20);
     let match = await resolveSlug(env, c, service, f), fallback = false;
     if (!match && ANCHORS[cat]) { const a = await resolveSlug(env, c, ANCHORS[cat], f); if (a) { match = a; fallback = true; } }
-    if (!match) return json({ ok: true, service, matched: null, page, hasMore: false, items: [], pricingPending: false }, 200, cors);
+    if (!match) return json({ ok: true, service, matched: null, page, hasMore: false, items: [], pending: false }, 200, cors);
     const list = await getList(env, c, match.slug, match.name || service, page, f);
     let pool = list.items;
     if (fallback && page === 1 && match.raw) {   // the stand-in itself is a fair alternative to the service we could not find
@@ -404,19 +265,16 @@ async function handle(req, env, ctx, f = fetch) {
     const country = String((req.cf && req.cf.country) || req.headers.get("cf-ipcountry") || "").toUpperCase();
     const here = x => { const only = REGION_ONLY[norm(x.name)]; return !(only && /^[A-Z]{2}$/.test(country) && !only.includes(country)); };
     const shown = pool.filter(here).slice(0, 12);
-    const out = []; const toEnrich = [];
+    const out = [], todo = [];
     for (const it of shown) {
-      const p = await priceFor(env, c, it.slug, f, now);
-      const idx = out.length;
-      if (!p && idx < PAGE_SIZE_SHOWN) toEnrich.push(it);
-      const price = p ? (p.status === "pending" ? { status: "pending" } : { status: p.status, plans: p.plans || [], pricingUrl: p.pricingUrl || null, checkedAt: p.checkedAt, region: p.region || null })
-        : idx < PAGE_SIZE_SHOWN ? { status: "pending" } : { status: "unavailable", plans: [], pricingUrl: null };
-      out.push(publicItem(it, { website: p && p.website ? p.website : null, price }));
+      const hit = await c.get("sw:v2:" + it.slug);
+      if (!hit) todo.push(it);
+      out.push(publicItem(it, { website: hit && hit.website ? cleanSite(hit.website) : null }));
     }
-    if (toEnrich.length && ctx && ctx.waitUntil) ctx.waitUntil(Promise.allSettled(toEnrich.map(it => enrichOne(env, c, it, f))));
-    else if (toEnrich.length) await Promise.allSettled(toEnrich.map(it => enrichOne(env, c, it, f)));
+    if (todo.length && ctx && ctx.waitUntil) ctx.waitUntil(Promise.allSettled(todo.map(it => lookupSite(env, c, it, f))));
+    else if (todo.length) await Promise.allSettled(todo.map(it => lookupSite(env, c, it, f)));
     return json({ ok: true, service, matched: { slug: match.slug, name: match.name }, fallback, country: country || null, page, hasMore: list.hasMore, stale: list.stale, items: out,
-      pricingPending: out.some(i => i.price.status === "pending") }, 200, cors);
+      pending: todo.length > 0 }, 200, cors);
   } catch (e) {
     const reason = e.code === "limit" ? "busy" : e.code === "no_key" ? "not_configured" : "unavailable";
     return json({ ok: false, reason }, reason === "not_configured" ? 503 : 502, cors);

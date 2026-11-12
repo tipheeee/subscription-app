@@ -1,34 +1,22 @@
 // The "Alternatives" page: asks the alternatives server for options, then shows a short, simple list.
 // Only the service NAME is sent (never your price, email or account). Everything else is worked out here.
 (function () {
-  const PAGE_SHORT = { free: 3, cheaper: 2, similar: 3 };
+  const PAGE_SHORT = { free: 3, similar: 3 };
   let H = null, S = null, run = 0, timer = null;
+
   // Products the person says are not available where they live. Kept on this device only.
   const HID = "alt.hidden.v1";
   const hidden = () => { try { return JSON.parse(localStorage.getItem(HID) || "[]"); } catch (e) { return []; } };
   const hide = slug => { try { const h = hidden(); if (!h.includes(slug)) { h.push(slug); localStorage.setItem(HID, JSON.stringify(h.slice(-200))); } } catch (e) { /* ignore */ } };
 
-  const PER = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
   const safeUrl = u => { try { const x = new URL(u); return x.protocol === "https:" || x.protocol === "http:" ? x.href : ""; } catch (e) { return ""; } };
-  const monthly = p => p && p.period ? (p.period === "year" ? p.amount / 12 : p.amount) : null;
 
-  // Cheapest plan that is really paid, with a known billing period.
-  function lowestPaid(it) {
-    const plans = (it.price && it.price.status === "verified" ? it.price.plans : []).filter(p => p.amount > 0 && monthly(p) != null);
-    return plans.sort((a, b) => monthly(a) - monthly(b))[0] || null;
-  }
-  // "Cheaper" only when both prices are known, in the same, clearly stated currency.
-  function isCheaper(it, sub) {
-    const p = lowestPaid(it), mine = sub && sub.amount != null && sub.currency && PER[sub.freq] ? sub.amount * PER[sub.freq] : null;
-    return !!(p && mine != null && !p.ambiguous && p.currency === sub.currency && monthly(p) < mine);
-  }
-
-  function labelsFor(it, cheaper) {
+  function labelsFor(it) {
     const out = [];
     if (it.openSource) out.push(["Open source", "good"]);
     if (it.cost === "free") out.push(["Completely free", "good"]);
     else if (it.cost === "freemium") out.push(["Free plan", "good"]);
-    if (cheaper) out.push(["Cheaper", "good"]);
+    else if (it.cost === "paid") out.push(["Paid", ""]);
     if (it.needsSetup) out.push(["Needs technical setup", "warn"]);
     return out;
   }
@@ -36,50 +24,32 @@
   function whyLine(it) {
     const bits = [];
     if (it.category) bits.push(it.category);
-    if (it.platforms && it.platforms.length) bits.push("works on " + it.platforms.slice(0, 3).join(", ").toLowerCase().replace(/\bweb\b/, "the web").replace(/\biphone\b/, "iPhone").replace(/\bandroid\b/, "Android").replace(/\bwindows\b/, "Windows").replace(/\bmac\b/, "Mac").replace(/\blinux\b/, "Linux"));
+    if (it.platforms && it.platforms.length) bits.push("works on " + it.platforms.slice(0, 3).join(", "));
     return bits.join(" · ");
   }
 
-  function priceHtml(it, cheaper) {
-    const pr = it.price || { status: "unavailable" }, link = pr.status === "verified" ? safeUrl(pr.pricingUrl) : safeUrl(it.website);
-    if (pr.status === "pending") return `<p class="alt-price muted">Checking price…</p>`;
-    const p = lowestPaid(it);
-    if (p) {
-      const per = p.period === "year" ? "year" : "month";
-      const where = pr.region === "NG" ? "Nigerian price" : "International price";
-      return `<p class="alt-price"><b>From ${H.esc(H.money(p.amount, p.currency))} / ${per}</b>${p.name ? " · " + H.esc(p.name) : ""}<small>${where}, checked ${H.esc(H.fmtDate(pr.checkedAt))}.${cheaper ? " Plans differ, so check what each one includes." : ""}</small></p>`;
-    }
-    return `<p class="alt-price">${link ? `<a href="${H.esc(link)}" target="_blank" rel="noopener noreferrer">Check current pricing</a>` : "Check current pricing"}</p>`;
-  }
-
-  function cardHtml(it, cheaper) {
-    const site = safeUrl(it.website), pricing = it.price && it.price.status === "verified" ? safeUrl(it.price.pricingUrl) : "";
-    const tags = labelsFor(it, cheaper).map(([t, k]) => `<span class="tag ${k}">${H.esc(t)}</span>`).join("");
+  function cardHtml(it) {
+    const site = safeUrl(it.website);
+    const tags = labelsFor(it).map(([t, k]) => `<span class="tag ${k}">${H.esc(t)}</span>`).join("");
     const why = whyLine(it);
-    const links = [site ? `<a class="btn ghost" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Visit website</a>` : "",
-      pricing && pricing !== site ? `<a class="btn ghost" href="${H.esc(pricing)}" target="_blank" rel="noopener noreferrer">Pricing page</a>` : ""].filter(Boolean).join("");
     return `<article class="alt-card">
       <div class="alt-head">${H.logoHtml(it.name)}<div class="n"><b>${H.esc(it.name)}</b><div class="alt-tags">${tags}</div></div></div>
       ${it.blurb ? `<p class="alt-desc">${H.esc(it.blurb)}</p>` : ""}
       ${why ? `<p class="alt-why">${H.esc(why)}</p>` : ""}
       ${it.needsSetup ? `<p class="note" style="margin:0">You run this yourself, so you may need to pay for hosting.</p>` : ""}
-      ${priceHtml(it, cheaper)}
-      ${links ? `<div class="alt-links">${links}</div>` : ""}
+      ${site ? `<div class="alt-links"><a class="btn ghost" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Visit website</a></div>` : ""}
       <button class="altlink alt-hide" data-hide="${H.esc(it.slug)}" style="background:none;border:0;padding:0;text-align:left;cursor:pointer">Not available in my country</button></article>`;
   }
 
-  // Each product appears once, under the first group it fits: free, then cheaper, then similar.
-  function group(items, sub) {
-    const g = { free: [], cheaper: [], similar: [] };
-    for (const it of items) {
-      const ch = isCheaper(it, sub);
-      const free = it.openSource || it.cost === "free" || it.cost === "freemium";
-      (free ? g.free : ch ? g.cheaper : g.similar).push({ it, ch });
-    }
+  // Each product appears once: free options first, then everything else that does a similar job.
+  function group(items) {
+    const g = { free: [], similar: [] };
+    for (const it of items) (it.openSource || it.cost === "free" || it.cost === "freemium" ? g.free : g.similar).push(it);
     return g;
   }
 
-  const TITLES = { free: "Free alternatives", cheaper: "Cheaper alternatives", similar: "Similar alternatives" };
+  const TITLES = { free: "Free alternatives", similar: "Similar alternatives" };
+  const visible = () => S.items.filter(i => !hidden().includes(i.slug));
 
   function render() {
     const box = H.el; if (!S) return;
@@ -89,15 +59,14 @@
       const msg = S.reason === "not_configured" ? "Alternatives aren’t switched on yet." : S.reason === "busy" ? "Alternatives are busy right now. Try again in a few minutes." : "We couldn’t load alternatives right now. Check your connection and try again.";
       box.innerHTML = head + `<p class="lead" style="font-size:16px">${H.esc(msg)}</p><p><button class="btn" id="alt-retry">Try again</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
     }
-    const gone = hidden();
-    const g = group(S.items.filter(i => !gone.includes(i.slug)), S.sub);
+    const g = group(visible());
     let shown = 0, hiddenCount = 0, html = "";
-    for (const k of ["free", "cheaper", "similar"]) {
+    for (const k of ["free", "similar"]) {
       const list = g[k], n = S.expanded ? list.length : Math.min(list.length, PAGE_SHORT[k]);
       hiddenCount += list.length - n;
       if (!n) continue;
       shown += n;
-      html += `<h2>${TITLES[k]}</h2>` + list.slice(0, n).map(x => cardHtml(x.it, x.ch)).join("");
+      html += `<h2>${TITLES[k]}</h2>` + list.slice(0, n).map(cardHtml).join("");
     }
     if (!shown) {
       box.innerHTML = head + `<p class="lead" style="font-size:16px">We couldn’t find good alternatives to ${H.esc(S.sub.name)} yet.</p><p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
@@ -107,7 +76,7 @@
       (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") + html +
       (more ? `<p><button class="btn" id="alt-more"${S.loadingMore ? " disabled" : ""}>${S.loadingMore ? "Loading…" : "See more alternatives"}</button></p>` : "") +
       (S.stale ? `<p class="note">Showing saved results. We couldn’t refresh them just now.</p>` : "") +
-      `<p class="note">Prices are read from each product’s own website and can be different in your country. Some products are not available in every country, so check the website before you sign up. If one isn’t available where you live, tap “Not available in my country” to hide it. Suggestions use public data from AlternativeTo.</p>` +
+      `<p class="note">Some products are not available in every country, and plans and prices differ, so check the website before you sign up. If one isn’t available where you live, tap “Not available in my country” to hide it. Suggestions use public data from AlternativeTo.</p>` +
       `<p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`;
   }
 
@@ -132,13 +101,13 @@
     try {
       const b = await fetchPage(1); if (my !== run) return;
       Object.assign(S, { state: "ready", items: b.items, page: 1, hasMore: !!b.hasMore, stale: !!b.stale, fallback: !!b.fallback, expanded: false });
-      render(); if (b.pricingPending) poll(my, 0);
+      render(); if (b.pending) poll(my, 0);
     } catch (e) { if (my !== run) return; S.state = "error"; S.reason = e.reason; render(); }
   }
 
-  // Prices are checked in the background. Ask again a few times so they appear without the person doing anything.
+  // Website links are looked up in the background. Ask again a few times so they appear without the person doing anything.
   function poll(my, n) {
-    if (n >= 4) { S.items = S.items.map(i => i.price && i.price.status === "pending" ? Object.assign({}, i, { price: { status: "unavailable", plans: [], pricingUrl: null } }) : i); render(); return; }
+    if (n >= 4) return;
     timer = setTimeout(async () => {
       if (my !== run) return;
       try {
@@ -147,15 +116,14 @@
         if (my !== run) return;
         S.items = bs.reduce((a, b) => merge(a, b.items), []);
         render();
-        if (bs.some(b => b.pricingPending)) poll(my, n + 1);
+        if (bs.some(b => b.pending)) poll(my, n + 1);
       } catch (e) { poll(my, n + 1); }
-    }, n === 0 ? 7000 : 9000);
+    }, n === 0 ? 6000 : 8000);
   }
 
   async function more() {
-    const gone = hidden();
-    const g = group(S.items.filter(i => !gone.includes(i.slug)), S.sub);
-    const anyHidden = ["free", "cheaper", "similar"].some(k => g[k].length > PAGE_SHORT[k]);
+    const g = group(visible());
+    const anyHidden = ["free", "similar"].some(k => g[k].length > PAGE_SHORT[k]);
     if (!S.expanded && anyHidden) { S.expanded = true; render(); return; }
     S.expanded = true;
     if (!S.hasMore) { render(); return; }
@@ -164,12 +132,12 @@
     try {
       const b = await fetchPage(S.page + 1); if (my !== run) return;
       S.items = merge(S.items, b.items); S.page += 1; S.hasMore = !!b.hasMore; S.loadingMore = false; render();
-      if (b.pricingPending) poll(my, 0);
+      if (b.pending) poll(my, 0);
     } catch (e) { S.loadingMore = false; S.hasMore = false; render(); }
   }
 
   window.Alternatives = {
-    // sub: { name, amount, currency, freq, cat }.  h: helpers from the app.
+    // sub: { name, cat }.  h: helpers from the app.
     show(sub, h) {
       H = h; S = { sub, state: "loading", items: [] };
       if (!h.cfg.altApi) { S.state = "error"; S.reason = "not_configured"; render(); return; }
@@ -185,6 +153,6 @@
       load();
     },
     stop() { run++; clearTimeout(timer); },
-    _test: { group, isCheaper, lowestPaid, labelsFor }
+    _test: { group, labelsFor }
   };
 })();
