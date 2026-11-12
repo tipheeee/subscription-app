@@ -1,82 +1,74 @@
 // The "Alternatives" page: asks the alternatives server for options, then shows a short, simple list.
-// Only the service NAME is sent (never your price, email or account). Everything else is worked out here.
+// Only the service NAME and its category are sent (never your price, email or account).
 (function () {
-  const PAGE_SHORT = { free: 3, similar: 3 };
+  const SHORT = 5;
   let H = null, S = null, run = 0, timer = null;
 
-  // Products the person says are not available where they live. Kept on this device only.
-  const HID = "alt.hidden.v1";
-  const hidden = () => { try { return JSON.parse(localStorage.getItem(HID) || "[]"); } catch (e) { return []; } };
-  const hide = slug => { try { const h = hidden(); if (!h.includes(slug)) { h.push(slug); localStorage.setItem(HID, JSON.stringify(h.slice(-200))); } } catch (e) { /* ignore */ } };
-
   const safeUrl = u => { try { const x = new URL(u); return x.protocol === "https:" || x.protocol === "http:" ? x.href : ""; } catch (e) { return ""; } };
+  const isFreeish = it => !!(it.openSource || it.cost === "free" || it.cost === "freemium");
+  const countryName = code => { try { return code ? new Intl.DisplayNames(["en"], { type: "region" }).of(String(code).toUpperCase()) : ""; } catch (e) { return ""; } };
 
-  function labelsFor(it) {
-    const out = [];
-    if (it.openSource) out.push(["Open source", "good"]);
-    if (it.cost === "free") out.push(["Completely free", "good"]);
-    else if (it.cost === "freemium") out.push(["Free plan", "good"]);
-    else if (it.cost === "paid") out.push(["Paid", ""]);
-    if (it.needsSetup) out.push(["Needs technical setup", "warn"]);
-    return out;
+  // The product's own icon, loaded from its own website. If it can't be loaded, the letter logo underneath stays visible.
+  function logoFor(it) {
+    const site = safeUrl(it.website); let img = "";
+    if (site) { const o = new URL(site).origin; img = `<img src="${H.esc(o)}/apple-touch-icon.png" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="if(!this.dataset.t){this.dataset.t=1;this.src='${H.esc(o)}/favicon.ico'}else{this.remove()}">`; }
+    return `<span class="alt-logo">${H.logoHtml(it.name)}${img}</span>`;
   }
 
-  function whyLine(it) {
-    const bits = [];
-    if (it.category) bits.push(it.category);
-    if (it.platforms && it.platforms.length) bits.push("works on " + it.platforms.slice(0, 3).join(", "));
-    return bits.join(" · ");
+  function freePlanText(it) {
+    if (it.cost === "free") return "Completely free";
+    if (it.cost === "freemium") return "Available";
+    if (it.openSource) return "Open source";
+    return "Not listed";
   }
 
-  function cardHtml(it) {
+  function cardHtml(it, where) {
     const site = safeUrl(it.website);
-    const tags = labelsFor(it).map(([t, k]) => `<span class="tag ${k}">${H.esc(t)}</span>`).join("");
-    const why = whyLine(it);
+    // "available" is only shown when the server has real evidence. Until then every product is honestly "Unverified".
+    const state = it.availability === "available" ? "available" : "unverified";
+    const badge = state === "available" ? `<span class="alt-badge ok">Available</span>` : `<span class="alt-badge unv">Unverified</span>`;
+    const sub = it.category || (it.platforms && it.platforms.length ? "Works on " + it.platforms.slice(0, 3).join(", ") : "");
+    const pricing = site ? `<a href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Check current pricing</a>` : `<b>Check current pricing</b>`;
     return `<article class="alt-card">
-      <div class="alt-head">${H.logoHtml(it.name)}<div class="n"><b>${H.esc(it.name)}</b><div class="alt-tags">${tags}</div></div></div>
-      ${it.blurb ? `<p class="alt-desc">${H.esc(it.blurb)}</p>` : ""}
-      ${why ? `<p class="alt-why">${H.esc(why)}</p>` : ""}
-      ${it.needsSetup ? `<p class="note" style="margin:0">You run this yourself, so you may need to pay for hosting.</p>` : ""}
-      ${site ? `<div class="alt-links"><a class="btn ghost" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Visit website</a></div>` : ""}
-      <button class="altlink alt-hide" data-hide="${H.esc(it.slug)}" style="background:none;border:0;padding:0;text-align:left;cursor:pointer">Not available in my country</button></article>`;
+      <div class="alt-top">${logoFor(it)}<div class="n"><b>${H.esc(it.name)}</b>${sub ? `<div class="alt-sub">${H.esc(sub)}</div>` : ""}</div>${badge}</div>
+      <div class="alt-rows">
+        <div class="alt-row"><span>Pricing</span>${pricing}</div>
+        <div class="alt-row"><span>Free plan</span><b>${H.esc(freePlanText(it))}</b></div>
+      </div>
+      ${it.blurb ? `<p class="alt-blurb">${H.esc(it.blurb)}</p>` : ""}
+      ${isFreeish(it) ? `<p class="alt-good">Potential free alternative</p>` : ""}
+      ${state === "unverified" ? `<p class="alt-warn">Availability and payment support ${H.esc(where)} have not been confirmed.</p>` : ""}
+      ${it.needsSetup ? `<p class="alt-warn">Needs technical setup. You run it yourself, so you may need to pay for hosting.</p>` : ""}
+      ${site ? `<a class="btn ghost alt-go" href="${H.esc(site)}" target="_blank" rel="noopener noreferrer">Explore alternative <span aria-hidden="true">↗</span></a>` : ""}
+    </article>`;
   }
 
-  // Each product appears once: free options first, then everything else that does a similar job.
-  function group(items) {
-    const g = { free: [], similar: [] };
-    for (const it of items) (it.openSource || it.cost === "free" || it.cost === "freemium" ? g.free : g.similar).push(it);
-    return g;
-  }
-
-  const TITLES = { free: "Free alternatives", similar: "Similar alternatives" };
-  const visible = () => S.items.filter(i => !hidden().includes(i.slug));
+  // Free and open-source options first, keeping the server's order inside each part.
+  const ordered = items => items.filter(isFreeish).concat(items.filter(i => !isFreeish(i)));
 
   function render() {
     const box = H.el; if (!S) return;
-    const head = `<h1 style="font-size:34px">Alternatives to ${H.esc(S.sub.name)}</h1>`;
-    if (S.state === "loading") { box.innerHTML = head + `<p class="lead" style="font-size:16px" role="status">Looking for alternatives… this can take up to a minute the first time.</p>`; return; }
+    const name = S.country ? countryName(S.country) : "";
+    const title = `<div class="alt-title"><h1 style="font-size:32px;margin:0">Explore alternatives</h1>${name ? `<span class="alt-badge ok">${H.esc(name)}</span>` : ""}</div>`;
+    if (S.state === "loading") { box.innerHTML = title + `<p class="lead" style="font-size:16px" role="status">Looking for alternatives to ${H.esc(S.sub.name)}… this can take up to a minute the first time.</p>`; return; }
     if (S.state === "error") {
       const msg = S.reason === "not_configured" ? "Alternatives aren’t switched on yet." : S.reason === "busy" ? "Alternatives are busy right now. Try again in a few minutes." : "We couldn’t load alternatives right now. Check your connection and try again.";
-      box.innerHTML = head + `<p class="lead" style="font-size:16px">${H.esc(msg)}</p><p><button class="btn" id="alt-retry">Try again</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
+      box.innerHTML = title + `<p class="lead" style="font-size:16px">${H.esc(msg)}</p><p><button class="btn" id="alt-retry">Try again</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
     }
-    const g = group(visible());
-    let shown = 0, hiddenCount = 0, html = "";
-    for (const k of ["free", "similar"]) {
-      const list = g[k], n = S.expanded ? list.length : Math.min(list.length, PAGE_SHORT[k]);
-      hiddenCount += list.length - n;
-      if (!n) continue;
-      shown += n;
-      html += `<h2>${TITLES[k]}</h2>` + list.slice(0, n).map(cardHtml).join("");
+    const list = ordered(S.items);
+    if (!list.length) {
+      box.innerHTML = title + `<p class="lead" style="font-size:16px">We couldn’t find good alternatives to ${H.esc(S.sub.name)} yet.</p><p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
     }
-    if (!shown) {
-      box.innerHTML = head + `<p class="lead" style="font-size:16px">We couldn’t find good alternatives to ${H.esc(S.sub.name)} yet.</p><p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`; return;
-    }
-    const more = hiddenCount > 0 || S.hasMore;
-    box.innerHTML = head + `<p class="lead" style="font-size:16px">Yanju found other tools you might like instead of ${H.esc(S.sub.name)}.</p>` +
-      (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") + html +
+    const n = S.expanded ? list.length : Math.min(list.length, SHORT);
+    const more = list.length > n || S.hasMore;
+    const where = name ? "in " + name : "in your country";
+    box.innerHTML = title +
+      `<p class="lead" style="font-size:16px">Looking for alternatives to ${H.esc(S.sub.name)}? Here are some options worth exploring.</p>` +
+      (S.fallback ? `<p class="note">We couldn’t find an exact match for ${H.esc(S.sub.name)}, so these are popular tools that do a similar job.</p>` : "") +
+      list.slice(0, n).map(i => cardHtml(i, where)).join("") +
       (more ? `<p><button class="btn" id="alt-more"${S.loadingMore ? " disabled" : ""}>${S.loadingMore ? "Loading…" : "See more alternatives"}</button></p>` : "") +
       (S.stale ? `<p class="note">Showing saved results. We couldn’t refresh them just now.</p>` : "") +
-      `<p class="note">Some products are not available in every country, and plans and prices differ, so check the website before you sign up. If one isn’t available where you live, tap “Not available in my country” to hide it. Suggestions use public data from AlternativeTo.</p>` +
+      `<p class="note">Availability is checked automatically from each product’s own website and may not be exact. Plans and prices differ by country, so check the website before you sign up. Suggestions use public data from AlternativeTo.</p>` +
       `<p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`;
   }
 
@@ -100,7 +92,7 @@
     S.state = "loading"; render();
     try {
       const b = await fetchPage(1); if (my !== run) return;
-      Object.assign(S, { state: "ready", items: b.items, page: 1, hasMore: !!b.hasMore, stale: !!b.stale, fallback: !!b.fallback, expanded: false });
+      Object.assign(S, { state: "ready", items: b.items, page: 1, hasMore: !!b.hasMore, stale: !!b.stale, fallback: !!b.fallback, country: b.country || "", expanded: false });
       render(); if (b.pending) poll(my, 0);
     } catch (e) { if (my !== run) return; S.state = "error"; S.reason = e.reason; render(); }
   }
@@ -122,9 +114,8 @@
   }
 
   async function more() {
-    const g = group(visible());
-    const anyHidden = ["free", "similar"].some(k => g[k].length > PAGE_SHORT[k]);
-    if (!S.expanded && anyHidden) { S.expanded = true; render(); return; }
+    const list = ordered(S.items);
+    if (!S.expanded && list.length > SHORT) { S.expanded = true; render(); return; }
     S.expanded = true;
     if (!S.hasMore) { render(); return; }
     S.loadingMore = true; render();
@@ -144,15 +135,13 @@
       if (!H.el.dataset.bound) {
         H.el.dataset.bound = "1";
         H.el.addEventListener("click", e => {
-          const hb = e.target.closest("[data-hide]");
-          if (hb) { hide(hb.getAttribute("data-hide")); render(); }
-          else if (e.target.closest("#alt-more")) more();
+          if (e.target.closest("#alt-more")) more();
           else if (e.target.closest("#alt-retry")) load();
         });
       }
       load();
     },
     stop() { run++; clearTimeout(timer); },
-    _test: { group, labelsFor }
+    _test: { ordered, freePlanText }
   };
 })();
