@@ -363,11 +363,13 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     return true;
   }
-  $("cal-btn").addEventListener("click", () => {
-    $("cal-msg").textContent = downloadIcs(buildIcs(), "subscriptions.ics")
+  const addAllToCalendar = msgId => {
+    $(msgId).textContent = downloadIcs(buildIcs(), "subscriptions.ics")
       ? "Downloaded. Open the file and choose “Add to calendar”."
       : "Nothing to add yet. Save a subscription that has a renewal date first.";
-  });
+  };
+  $("cal-btn").addEventListener("click", () => addAllToCalendar("cal-msg"));
+  if ($("cal-tip-btn")) $("cal-tip-btn").addEventListener("click", () => addAllToCalendar("cal-tip-msg"));
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
   function rowsHtml(list, real) {
@@ -423,6 +425,7 @@
     else if (mixed) fxNote = "Exchange rates couldn’t load, so each currency is shown separately. Open the app with internet to convert.";
     $("fx-note").textContent = fxNote;
     scheduleSync(); renderInsights(); renderHistory();
+    if ($("cal-tip")) $("cal-tip").hidden = usingSample || !real.some(s => s.status === "active" && s.date);
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
 

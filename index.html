@@ -76,13 +76,22 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 .card.empty{justify-items:center;text-align:center}
 .exports{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
 .altlink{display:inline-block;margin-top:2px;font-size:14px;font-weight:700;color:var(--teal);text-decoration:none}.altlink:hover{text-decoration:underline}
-.alt-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;display:grid;gap:8px}
-.alt-head{display:flex;gap:12px;align-items:center}.alt-head .n{min-width:0;flex:1;overflow-wrap:anywhere}.alt-head b{font:600 18px var(--head)}
-.alt-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-.tag{font:700 12px var(--body);padding:3px 9px;border-radius:99px;background:var(--line);color:var(--ink)}.tag.good{background:var(--teal);color:#fff}.tag.warn{background:var(--sun);color:#3A2A00}
-@media(prefers-color-scheme:dark){.tag.good{color:#0E1A1C}}
-.alt-desc,.alt-why,.alt-price{margin:0}.alt-why{color:var(--mute);font-size:14px}.alt-price small{display:block;color:var(--mute);font-size:13px;font-weight:400}.alt-price a{color:var(--teal);font-weight:700}.muted{color:var(--mute)}
-.alt-links{display:flex;gap:8px;flex-wrap:wrap}.alt-links .btn{padding:10px 14px;font-size:15px;min-height:44px}
+.alt-title{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.alt-badge{font:700 13px var(--body);padding:4px 12px;border-radius:99px;white-space:nowrap;background:var(--line);color:var(--ink)}
+.alt-badge.ok{background:rgba(15,122,90,.14);color:#0B7A57}.alt-badge.unv{background:rgba(217,119,6,.16);color:#B45309}
+@media(prefers-color-scheme:dark){.alt-badge.ok{background:rgba(52,211,153,.16);color:#6EE7B7}.alt-badge.unv{background:rgba(251,146,60,.18);color:#FDBA74}}
+.alt-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 14px}
+.alt-top{display:flex;gap:12px;align-items:flex-start}.alt-top .n{min-width:0;flex:1;overflow-wrap:anywhere}
+.alt-top b{display:block;font:600 19px var(--head)}.alt-sub{color:var(--mute);font-size:15px;line-height:1.35}
+.alt-rows{border-top:1px solid var(--line);margin-top:14px;padding-top:4px}
+.alt-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:15px}.alt-row span{color:var(--mute)}.alt-row b,.alt-row a{font-weight:700;text-align:right;color:var(--ink);text-decoration:none}
+.alt-blurb{margin:6px 0 8px;font-size:15px}.alt-good{margin:0 0 10px;font-weight:700;color:#0B7A57}.alt-warn{margin:0 0 10px;font-weight:600;color:#B45309}
+@media(prefers-color-scheme:dark){.alt-good{color:#6EE7B7}.alt-warn{color:#FDBA74}}
+.alt-go{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;box-sizing:border-box;min-height:46px;padding:10px 14px;font-size:16px}
+.alt-cnote{background:rgba(217,119,6,.10);border-radius:12px;padding:10px 14px;margin:0 0 14px;font-size:14px;color:#B45309}
+@media(prefers-color-scheme:dark){.alt-cnote{color:#FDBA74}}
+.cal-tip{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--sun);border-radius:14px;padding:14px 16px;margin:16px 0}
+.cal-tip b{font:600 18px var(--head)}.cal-tip p{margin:6px 0 12px}
 </style>
 </head>
 <body>
@@ -122,6 +131,12 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   <h2>Upcoming renewals</h2>
   <div class="renewals" id="dash-list"></div>
   <p class="note" id="unpriced"></p>
+  <div class="cal-tip" id="cal-tip" hidden>
+    <b>Never miss a renewal</b>
+    <p>Phone notifications are easy to miss. Adding your renewals to your calendar is the best way to be sure you see them. It works even when the app is closed.</p>
+    <button class="btn" id="cal-tip-btn">Add all to my calendar</button>
+    <p class="note" id="cal-tip-msg" style="margin:8px 0 0"></p>
+  </div>
   <div class="empty">
     <a class="btn" href="#scan">Scan a screenshot</a> <a class="btn ghost" href="#insights">Insights</a> <a class="btn ghost" href="#history">History</a> <a class="btn ghost" href="#settings">Reminder settings</a>
   </div>
@@ -182,7 +197,7 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
   </div>
   <div class="card">
     <b>📅 Calendar</b>
-    <p class="note" style="margin:0">Works even when the app is closed. Adds every active subscription to your phone’s calendar as a repeating event, with alerts for the days you chose above. Open the file and choose “Add to calendar”.</p>
+    <p class="note" style="margin:0"><b>Recommended.</b> Notifications are easy to miss, and a calendar alert is the most reliable reminder. Works even when the app is closed. Adds every active subscription to your phone’s calendar as a repeating event, with alerts for the days you chose above. Open the file and choose “Add to calendar”.</p>
     <label class="inc"><input type="checkbox" id="cal-ask"> After I tap “It renewed”, offer to update my calendar</label>
     <button class="btn" id="cal-btn">Download calendar file</button>
     <p class="note" id="cal-msg" style="margin:0"></p>
