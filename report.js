@@ -99,18 +99,164 @@
     box.innerHTML = html;
   }
 
-  function csv() {
-    const d = compute(H), I = d.I, T = d.target, rows = [];
-    let mt = 0, yt = 0;
+  // The subscription rows shared by the spreadsheet's second sheet and the CSV fallback.
+  function subRows(d) {
+    const I = d.I, T = d.target, rows = []; let mt = 0, yt = 0;
     d.filtered.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))).forEach(s => {
       const mo = I.monthly(s), v = mo == null ? null : H.convert(mo, s.currency, T);
       if (v != null) { mt += v; yt += v * 12; }
       rows.push([s.name, I.clientOf(s), I.catLabel(I.catOf(s)), s.plan || "", s.freq || "", s.amount == null ? "" : s.amount, s.currency || "", v == null ? "" : round2(v), v == null ? "" : round2(v * 12), s.date || "", s.status || ""]);
     });
-    rows.push(["Total", "", "", "", "", "", "", round2(mt), round2(yt), "", ""]);
+    return { rows, mt, yt, head: ["Name", "Client or project", "Category", "Plan", "Billed", "Amount", "Currency", "Monthly cost (" + T + ")", "Yearly cost (" + T + ")", "Next renewal", "Status"] };
+  }
+
+  // Plain CSV, kept only as a fallback if the Excel file can't be built (for example, no internet the first time).
+  function csv() {
+    const d = compute(H), T = d.target, r = subRows(d), rows = r.rows.slice();
+    rows.push(["Total", "", "", "", "", "", "", round2(r.mt), round2(r.yt), "", ""]);
     rows.push([]);
     rows.push(["Estimates from the prices saved in Yanju, converted at about today’s exchange rates. Not tax advice. Ask your accountant what you can claim."]);
-    return I.toCsv(["Name", "Client or project", "Category", "Plan", "Billed", "Amount", "Currency", "Monthly cost (" + T + ")", "Yearly cost (" + T + ")", "Next renewal", "Status"], rows);
+    return d.I.toCsv(r.head, rows);
+  }
+
+  // ---- Excel file: the same page as the app, laid out as a spreadsheet ---------------
+  const TEAL = "FF0F4C4A", MUTE = "FF5B6E70", LINE = "FFD9E2E0", PAPER = "FFF3F6F5", INK = "FF16282C", WHITE = "FFFFFFFF";
+  const solid = argb => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
+  const bar = (v, max) => v > 0 && max > 0 ? "█".repeat(Math.max(1, Math.round(v / max * 24))) : "";
+
+  function buildXlsx(X, d, h) {
+    const I = d.I, T = d.target, B = d.B, top = B.top[0];
+    const money = '"' + T + ' "#,##0.00';
+    const wb = new X.Workbook();
+    wb.creator = h.cfg.name; wb.created = new Date();
+    const ws = wb.addWorksheet("Business report", { views: [{ showGridLines: false }], pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    ws.columns = [{ width: 34 }, { width: 22 }, { width: 38 }, { width: 12 }];
+    let r = 1;
+
+    // Title block
+    ws.mergeCells(r, 1, r, 4);
+    Object.assign(ws.getCell(r, 1), { value: "Business spending report", font: { name: "Calibri", size: 20, bold: true, color: { argb: WHITE } }, fill: solid(TEAL), alignment: { vertical: "middle", indent: 1 } });
+    ws.getRow(r).height = 38; r++;
+    const who = S.client === "all" ? "All clients" : S.client === I.GENERAL_KEY ? "General (no client)" : S.client;
+    ws.mergeCells(r, 1, r, 4);
+    Object.assign(ws.getCell(r, 1), { value: h.cfg.name + " · created " + h.fmtDate(h.today) + " · amounts in " + T + " · " + who, font: { size: 11, color: { argb: MUTE } }, alignment: { indent: 1 } });
+    r += 2;
+
+    const section = text => {
+      ws.mergeCells(r, 1, r, 4);
+      Object.assign(ws.getCell(r, 1), { value: text, font: { size: 13, bold: true, color: { argb: TEAL } } });
+      for (let c = 1; c <= 4; c++) ws.getCell(r, c).border = { bottom: { style: "medium", color: { argb: TEAL } } };
+      ws.getRow(r).height = 22; r++;
+    };
+    const note = text => {
+      ws.mergeCells(r, 1, r, 4);
+      Object.assign(ws.getCell(r, 1), { value: text, font: { size: 10, italic: true, color: { argb: MUTE } }, alignment: { wrapText: true, vertical: "top" } });
+      ws.getRow(r).height = Math.max(16, Math.ceil(text.length / 95) * 15); r++;
+    };
+    const card = (label, value, fmt, sub) => {
+      for (let c = 1; c <= 4; c++) { const x = ws.getCell(r, c); x.fill = solid(PAPER); x.border = { bottom: { style: "thin", color: { argb: WHITE } } }; }
+      Object.assign(ws.getCell(r, 1), { value: label, font: { size: 11, color: { argb: MUTE } }, alignment: { indent: 1, vertical: "middle" } });
+      Object.assign(ws.getCell(r, 2), { value, font: { size: 14, bold: true, color: { argb: INK } }, alignment: { horizontal: "right", vertical: "middle" } });
+      if (fmt) ws.getCell(r, 2).numFmt = fmt;
+      if (sub) { ws.mergeCells(r, 3, r, 4); Object.assign(ws.getCell(r, 3), { value: sub, font: { size: 10, color: { argb: MUTE } }, alignment: { indent: 1, vertical: "middle" } }); }
+      ws.getRow(r).height = 24; r++;
+    };
+    const barRows = (rows, max, shareCol) => rows.forEach(x => {
+      Object.assign(ws.getCell(r, 1), { value: x.label, font: { size: 11, color: { argb: INK } }, alignment: { vertical: "middle", wrapText: true } });
+      Object.assign(ws.getCell(r, 2), { value: round2(x.value), numFmt: money, font: { size: 11, bold: true, color: { argb: INK } }, alignment: { horizontal: "right", vertical: "middle" } });
+      Object.assign(ws.getCell(r, 3), { value: bar(x.value, max), font: { size: 11, color: { argb: TEAL } }, alignment: { vertical: "middle", indent: 1 } });
+      if (shareCol && x.share != null) Object.assign(ws.getCell(r, 4), { value: x.share, numFmt: "0%", font: { size: 10, color: { argb: MUTE } }, alignment: { horizontal: "right", vertical: "middle" } });
+      for (let c = 1; c <= 4; c++) ws.getCell(r, c).border = { bottom: { style: "hair", color: { argb: LINE } } };
+      ws.getRow(r).height = 20; r++;
+    });
+
+    // Summary cards (the same six as the app)
+    const share = d.allTotal > 0 ? B.total / d.allTotal : 0;
+    const withClient = d.biz.length ? d.biz.filter(s => I.clientOf(s)).length / d.biz.length : 0;
+    section("Summary");
+    card("Per month", round2(B.total), money);
+    card("Per year (estimate)", round2(B.total * 12), money);
+    card("Biggest cost", top ? top.name : "None", null, top ? h.money(top.monthly, T) + " per month" : "");
+    card("Business tools", B.count, "0");
+    card("Share of all spending", share, "0%");
+    card("Paid in " + S.year, round2(d.paid), money, "Renewals you confirmed in the app");
+    if (B.unpriced) note(B.unpriced + " subscription" + (B.unpriced > 1 ? "s are" : " is") + " not counted: price, currency or billing period is missing.");
+    if (B.unconverted || d.charges.skipped || d.paidSkipped) note("Some amounts are left out because exchange rates didn’t load.");
+    r++;
+
+    // Biggest costs
+    if (B.top.length) {
+      section("Biggest costs per month");
+      barRows(B.top.map(x => ({ label: x.name, value: x.monthly, share: x.share })), B.top[0].monthly, true);
+      r++;
+    }
+
+    // Cost by client or project
+    section("Cost by client or project, per month");
+    if (d.C.rows.length) barRows(d.C.rows.map(x => ({ label: x.label, value: x.monthly, share: x.share })), d.C.rows[0].monthly, true);
+    if (!d.names.length) note("Add a client or project name when you edit a Business subscription, and the cost for each will show here.");
+    r++;
+
+    // The two donuts, as shares
+    section("Business share and client coverage");
+    card("Business share of spending", share, "0%");
+    card("Tools with a client", withClient, "0%");
+    r++;
+
+    // Expected charges
+    section("Expected charges, next 12 months");
+    const bk = d.charges.buckets, total = bk.reduce((a, b) => a + b.total, 0);
+    if (total > 0) {
+      const mx = Math.max.apply(null, bk.map(b => b.total));
+      barRows(bk.map(b => { const [y, m] = b.key.split("-").map(Number); return { label: new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" }), value: b.total }; }), mx, false);
+      Object.assign(ws.getCell(r, 1), { value: "Total", font: { bold: true, color: { argb: INK } } });
+      Object.assign(ws.getCell(r, 2), { value: round2(total), numFmt: money, font: { bold: true, color: { argb: INK } }, alignment: { horizontal: "right" } });
+      for (let c = 1; c <= 4; c++) ws.getCell(r, c).border = { top: { style: "thin", color: { argb: TEAL } } };
+      r++;
+    } else note("Nothing to chart yet. Add a renewal date and price to your business subscriptions.");
+    r++;
+    note("These are estimates from the prices saved in " + h.cfg.name + ", shown in " + T + " at about today’s exchange rates. " + h.cfg.name + " doesn’t give tax advice. Ask your accountant what you can claim.");
+
+    // Sheet 2: every subscription behind the report
+    const sr = subRows(d), w2 = wb.addWorksheet("Subscriptions", { views: [{ state: "frozen", ySplit: 1 }] });
+    w2.columns = [{ width: 26 }, { width: 22 }, { width: 18 }, { width: 16 }, { width: 11 }, { width: 12 }, { width: 10 }, { width: 18 }, { width: 18 }, { width: 14 }, { width: 11 }];
+    const hr = w2.addRow(sr.head);
+    hr.eachCell(c => { c.font = { bold: true, color: { argb: WHITE } }; c.fill = solid(TEAL); c.alignment = { vertical: "middle", wrapText: true }; });
+    hr.height = 32;
+    sr.rows.forEach(x => w2.addRow(x));
+    const tr = w2.addRow(["Total", "", "", "", "", "", "", round2(sr.mt), round2(sr.yt), "", ""]);
+    tr.font = { bold: true }; tr.eachCell(c => { c.border = { top: { style: "thin", color: { argb: TEAL } } }; });
+    [6, 8, 9].forEach(k => { w2.getColumn(k).numFmt = "#,##0.00"; w2.getColumn(k).alignment = { horizontal: "right" }; });
+    hr.getCell(6).alignment = hr.getCell(8).alignment = hr.getCell(9).alignment = { horizontal: "right", vertical: "middle", wrapText: true };
+    if (sr.rows.length) w2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1 + sr.rows.length, column: 11 } };
+    return wb;
+  }
+
+  let xlsxLoad = null;
+  function loadExcel() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (!xlsxLoad) xlsxLoad = new Promise((ok, no) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+      sc.onload = () => window.ExcelJS ? ok(window.ExcelJS) : no(new Error("ExcelJS missing"));
+      sc.onerror = () => { xlsxLoad = null; no(new Error("ExcelJS failed to load")); };
+      document.head.appendChild(sc);
+    });
+    return xlsxLoad;
+  }
+
+  async function exportSheet() {
+    const msg = H.el.querySelector("#rp-msg"), say = t => { if (msg) msg.textContent = t; };
+    const base = `${H.cfg.name.toLowerCase()}-business-report-${H.stamp()}`;
+    say("Preparing your spreadsheet…");
+    try {
+      const X = await loadExcel(), wb = buildXlsx(X, compute(H), H), buf = await wb.xlsx.writeBuffer();
+      H.download(buf, base + ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      say("Downloaded. Open it in Excel, Google Sheets or Numbers.");
+    } catch (err) {
+      H.download(csv(), base + ".csv", "text/csv");
+      say("The formatted spreadsheet needs internet the first time, so a simple table (CSV) was downloaded instead. Try again when you are online.");
+    }
   }
 
   function onClick(e) {
@@ -123,11 +269,8 @@
       if (typeof window.print === "function") window.print();
       return;
     }
-    if (e.target.closest("#rp-csv")) {
-      H.download(csv(), `${H.cfg.name.toLowerCase()}-business-report-${H.stamp()}.csv`, "text/csv");
-      const msg = H.el.querySelector("#rp-msg"); if (msg) msg.textContent = "Downloaded. Open it in Excel, Google Sheets or Numbers.";
-    }
+    if (e.target.closest("#rp-csv")) { exportSheet(); }
   }
 
-  window.Report = { render, _test: { csv: () => csv(), niceTop, compute: h => { H = h; return compute(h); } } };
+  window.Report = { render, _test: { csv: () => csv(), buildXlsx: (X, d, h) => { H = h; return buildXlsx(X, d, h); }, niceTop, compute: h => { H = h; return compute(h); } } };
 })();
