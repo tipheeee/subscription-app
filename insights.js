@@ -87,6 +87,51 @@
     return Object.keys(g).filter(c => g[c].length > 1).map(c => ({ cat: c, label: catLabel(c), names: g[c] }));
   }
 
+
+  // ---- Business view: clients and projects --------------------------------------
+  const GENERAL_KEY = "__general__", GENERAL_LABEL = "General business costs";
+  const clientOf = s => String((s && s.client) || "").replace(/\s+/g, " ").trim();
+  // Distinct names, ignoring capital letters ("Ada" and "ada" are one client), sorted A to Z.
+  function clientNames(subs) {
+    const seen = new Map();
+    subs.forEach(s => { const c = clientOf(s); if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c); });
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }
+  // key: "all", GENERAL_KEY (no client set), or a client name.
+  function matchClient(s, key) {
+    if (!key || key === "all") return true;
+    const c = clientOf(s);
+    return key === GENERAL_KEY ? c === "" : c.toLowerCase() === String(key).toLowerCase();
+  }
+  // Monthly cost of each client or project (active business subscriptions only).
+  function byClient(subs, target, convert) {
+    const g = {}; let total = 0;
+    subs.filter(s => s.status === "active" && useOf(s) === "business").forEach(s => {
+      const m = monthly(s); if (m == null) return;
+      const v = convert(m, s.currency, target); if (v == null) return;
+      const c = clientOf(s), k = c ? c.toLowerCase() : GENERAL_KEY;
+      g[k] = g[k] || { client: c, label: c || GENERAL_LABEL, monthly: 0, count: 0 };
+      g[k].monthly += v; g[k].count++; total += v;
+    });
+    const rows = Object.values(g).sort((a, b) => b.monthly - a.monthly).map(r => Object.assign(r, { share: total ? r.monthly / total : 0 }));
+    return { total, rows };
+  }
+  // Expected charges for 12 months, month by month. startIso is the first day of the first month.
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function chargesByMonth(list, startIso, convert, target) {
+    const [y, m] = startIso.split("-").map(Number), buckets = [];
+    for (let i = 0; i < 12; i++) { const d = new Date(y, m - 1 + i, 1); buckets.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"), label: MON[d.getMonth()], total: 0 }); }
+    let skipped = 0;
+    list.forEach(u => {
+      const s = u.sub;
+      if (s.amount == null || s.amount === "" || !s.currency) { skipped++; return; }
+      const v = convert(Number(s.amount), s.currency, target);
+      if (v == null) { skipped++; return; }
+      const b = buckets.find(x => x.key === u.date.slice(0, 7)); if (b) b.total += v;
+    });
+    return { buckets, skipped };
+  }
+
   // ---- CSV -------------------------------------------------------------------------
   // Cells starting with = + - @ are prefixed with ' so spreadsheets never run them as formulas.
   function cell(v) {
@@ -96,6 +141,6 @@
   }
   const toCsv = (headers, rows) => "﻿" + [headers].concat(rows).map(r => r.map(cell).join(",")).join("\r\n") + "\r\n";
 
-  root.Insights = { CATS, suggestCategory, catOf, catLabel, useOf, PER, monthly, breakdown, upcoming, overlaps, cell, toCsv };
+  root.Insights = { CATS, suggestCategory, catOf, catLabel, useOf, PER, monthly, breakdown, upcoming, overlaps, cell, toCsv, GENERAL_KEY, GENERAL_LABEL, clientOf, clientNames, matchClient, byClient, chargesByMonth };
   if (typeof module !== "undefined") module.exports = root.Insights;
 })(typeof window !== "undefined" ? window : globalThis);

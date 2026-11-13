@@ -58,7 +58,7 @@
   // ---------- Small helpers for tags, categories and history events ----------
   const useOptions = v => [["", "Not set"], ["personal", "Personal"], ["business", "Business"]].map(([k, l]) => `<option value="${k}" ${(v || "") === k ? "selected" : ""}>${l}</option>`).join("");
   const catOptions = v => Insights.CATS.map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("");
-  const evt = (s, type, date) => ({ subId: s.id, name: s.name, type, date, amount: s.amount ?? null, currency: s.currency || "", freq: s.freq || "", use: s.use || "", cat: Insights.catOf(s) });
+  const evt = (s, type, date) => ({ subId: s.id, name: s.name, type, date, amount: s.amount ?? null, currency: s.currency || "", freq: s.freq || "", use: s.use || "", client: s.client || "", cat: Insights.catOf(s) });
 
   // ---------- "Did it renew?" prompts ----------
   // Shows from the day a date arrives, and stays until answered (or snoozed to tomorrow).
@@ -150,7 +150,7 @@
     sel.dataset.key = key;
     sel.innerHTML = all.map(c => `<option value="${esc(c)}" ${c === target ? "selected" : ""}>${esc(c)}</option>`).join("");
   }
-  ["total-cur", "ins-cur"].forEach(id => $(id).addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); }));
+  ["total-cur", "ins-cur", "rep-cur"].forEach(id => $(id).addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); }));
 
   // ---------- Editing a saved subscription ----------
   let editId = null;
@@ -164,6 +164,8 @@
       <label>Billed<select data-e="freq">${FREQS.map(([v, l]) => `<option value="${v}" ${s.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       ${f("date", "Next renewal", "date")}${f("expiry", "Ends / expires (leave empty if it keeps renewing)", "date")}
       <div class="two2"><label>Used for<select data-e="use">${useOptions(s.use)}</select></label><label>Category<select data-e="cat">${catOptions(Insights.catOf(s))}</select></label></div>
+      <label id="edit-client-wrap" class="${s.use === "business" ? "" : "hide"}">Client or project (optional)<input data-e="client" type="text" list="client-list" maxlength="60" placeholder="Who is this tool for?" value="${esc(s.client || "")}"></label>
+      <datalist id="client-list">${Insights.clientNames(Store.load()).map(n => `<option value="${esc(n)}">`).join("")}</datalist>
       <label>Status<select data-e="status">${STATS.map(x => `<option ${s.status === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
       <p class="warn hide" id="edit-err"></p>
       <div style="display:flex;gap:10px"><button class="btn" id="edit-save">Save changes</button><button class="btn ghost" id="edit-cancel">Cancel</button></div>`;
@@ -180,7 +182,7 @@
     let currency = v.currency.trim().toUpperCase();
     if (amount != null && !currency) currency = cfg.defaultCurrency;
     const oldDate = s.date, oldStatus = s.status;
-    Object.assign(s, { name: v.name.trim(), plan: v.plan.trim(), amount, currency, freq: v.freq, date: v.date, expiry: v.expiry, status: v.status, use: v.use || "", cat: v.cat || Insights.catOf(s) });
+    Object.assign(s, { name: v.name.trim(), plan: v.plan.trim(), amount, currency, freq: v.freq, date: v.date, expiry: v.expiry, status: v.status, use: v.use || "", client: v.use === "business" ? String(v.client || "").replace(/\s+/g, " ").trim().slice(0, 60) : "", cat: v.cat || Insights.catOf(s) });
     if (s.date !== oldDate || s.status !== oldStatus) delete s.snooze;
     if (!Store.save(list)) return err("Couldn’t save on this device. Check that browser storage is allowed.");
     if (s.status !== oldStatus && s.status !== "active") Store.logEvents([evt(s, s.status === "cancelled" ? "cancelled" : "ended", isoIn(0))]);
@@ -193,6 +195,9 @@
     else if (e.target.id === "edit-cancel" || e.target.id === "editor") closeEditor();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && editId) closeEditor(); });
+  document.addEventListener("change", e => {
+    if (e.target.matches && e.target.matches('#edit-form [data-e="use"]') && $("edit-client-wrap")) $("edit-client-wrap").classList.toggle("hide", e.target.value !== "business");
+  });
 
   // ---------- Reminder settings and notifications ----------
   // Browsers can only show a notification while the app has been opened recently. Notifications while the app is fully closed need an online server (a later step).
@@ -424,7 +429,7 @@
     if (mixed && sum != null) fxNote = `Everything is converted to ${target} at about today’s rates${fx && fx.at ? " (updated " + new Date(fx.at).toLocaleDateString() + ")" : ""}. Real charges will differ a little.` + (skipped.length ? ` Not counted, no rate for: ${skipped.join(", ")}.` : "");
     else if (mixed) fxNote = "Exchange rates couldn’t load, so each currency is shown separately. Open the app with internet to convert.";
     $("fx-note").textContent = fxNote;
-    scheduleSync(); renderInsights(); renderHistory();
+    scheduleSync(); renderInsights(); renderReport(); renderHistory();
     if ($("cal-tip")) $("cal-tip").hidden = usingSample || !real.some(s => s.status === "active" && s.date);
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
@@ -633,10 +638,21 @@
     if (B.unpriced) h += `<p class="note">${B.unpriced} subscription${B.unpriced > 1 ? "s are" : " is"} not counted: price, currency or billing period is missing.</p>`;
     if (!B.count) h += `<p class="note">No active ${insFilter} subscriptions yet. Tap ✎ on the dashboard to set what each one is used for.</p>`;
 
+    if (insFilter !== "personal") {
+      const yStart = isoIn(0).slice(0, 4) + "-01-01";
+      let bizPaid = 0;
+      Store.history().forEach(e => { if (e.type === "renewed" && e.use === "business" && e.amount != null && e.currency && e.date >= yStart && e.date <= isoIn(0)) { const v = convert(e.amount, e.currency, target); if (v != null) bizPaid += v; } });
+      if (bizPaid > 0) h += `<p class="note">Business paid this year: <b>${esc(money(bizPaid, target))}</b>. Only renewals you confirmed in the app are counted.</p>`;
+    }
     if (insFilter === "all" && B.total > 0) {
       const parts = [["business", "Business"], ["personal", "Personal"], ["unset", "Not tagged"]].filter(([k]) => B.byUse[k] > 0);
       h += `<h2>Business and personal</h2><div class="card">${parts.map(([k, l]) => `<div class="ins-row"><div class="ins-top"><span>${l}</span><span class="amt">${esc(money(B.byUse[k], target))}<small> /month · ${pct(B.byUse[k] / B.total)}</small></span></div>${bar(B.byUse[k] / B.total)}</div>`).join("")}
         ${unsetCount ? `<p class="note" style="margin:0">${unsetCount} active subscription${unsetCount > 1 ? "s aren’t" : " isn’t"} tagged Business or Personal yet. Tap ✎ on the dashboard to tag ${unsetCount > 1 ? "them" : "it"}.</p>` : ""}</div>`;
+    }
+    if (insFilter !== "personal") {
+      const CL = Insights.byClient(real, target, convert);
+      if (CL.rows.some(r => r.client)) h += `<h2>Business by client or project</h2><div class="card">${CL.rows.map(r => `<div class="ins-row"><div class="ins-top"><span>${esc(r.label)} <small>${r.count}</small></span><span class="amt">${esc(money(r.monthly, target))}<small> /month · ${pct(r.share)}</small></span></div>${bar(r.share)}</div>`).join("")}<a class="btn ghost" href="#report" style="justify-self:start">Business report</a></div>`;
+      else if (CL.rows.length) h += `<p class="note"><a href="#report">See your business report</a>. Add a client or project name to a Business subscription to see the cost for each.</p>`;
     }
     if (B.byCat.length) {
       h += `<h2>Where the money goes</h2><div class="card">${B.byCat.map(c => `<div class="ins-row"><div class="ins-top"><span>${esc(c.label)} <small>${c.count}</small></span><span class="amt">${esc(money(c.monthly, target))}<small> /month · ${pct(c.share)}</small></span></div>${bar(c.share)}</div>`).join("")}</div>`;
@@ -733,7 +749,13 @@
   });
 
   // ---------- Pages ----------
-  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives"];
+  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report"];
+  function renderReport() {
+    const box = $("rep-body"), page = $("report"); if (!box || !page || page.classList.contains("hide")) return;
+    const target = totalCur(), codes = Array.from(new Set(Store.load().filter(s => s.status === "active" && s.currency).map(s => s.currency)));
+    fillCurSelect(target, codes, "rep-cur");
+    window.Report.render({ el: box, Store, Insights, esc, money, fmtDate, convert, target, cfg, today: isoIn(0), addPeriods, fxReady: () => !!(fx && fx.rates), refreshFx, download: downloadFile, stamp });
+  }
   function showAlternatives(key) {
     const real = Store.load().find(x => x.id === key);
     const name = real ? real.name : key.replace(/^n:/, "");
