@@ -150,7 +150,7 @@
     sel.dataset.key = key;
     sel.innerHTML = all.map(c => `<option value="${esc(c)}" ${c === target ? "selected" : ""}>${esc(c)}</option>`).join("");
   }
-  ["total-cur", "ins-cur", "rep-cur"].forEach(id => $(id).addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); }));
+  ["total-cur", "ins-cur", "rep-cur"].forEach(id => { const sel = $(id); if (sel) sel.addEventListener("change", ev => { try { localStorage.setItem(CUR_KEY, ev.target.value); } catch (e) {} renderAll(); }); });
 
   // ---------- Editing a saved subscription ----------
   let editId = null;
@@ -165,7 +165,7 @@
       ${f("date", "Next renewal", "date")}${f("expiry", "Ends / expires (leave empty if it keeps renewing)", "date")}
       <div class="two2"><label>Used for<select data-e="use">${useOptions(s.use)}</select></label><label>Category<select data-e="cat">${catOptions(Insights.catOf(s))}</select></label></div>
       <label id="edit-client-wrap" class="${s.use === "business" ? "" : "hide"}">Client or project (optional)<input data-e="client" type="text" list="client-list" maxlength="60" placeholder="Who is this tool for?" value="${esc(s.client || "")}"></label>
-      <datalist id="client-list">${Insights.clientNames(Store.load()).map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+      <datalist id="client-list">${(Insights.clientNames ? Insights.clientNames(Store.load()) : []).map(n => `<option value="${esc(n)}">`).join("")}</datalist>
       <label>Status<select data-e="status">${STATS.map(x => `<option ${s.status === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
       <p class="warn hide" id="edit-err"></p>
       <div style="display:flex;gap:10px"><button class="btn" id="edit-save">Save changes</button><button class="btn ghost" id="edit-cancel">Cancel</button></div>`;
@@ -429,7 +429,7 @@
     if (mixed && sum != null) fxNote = `Everything is converted to ${target} at about today’s rates${fx && fx.at ? " (updated " + new Date(fx.at).toLocaleDateString() + ")" : ""}. Real charges will differ a little.` + (skipped.length ? ` Not counted, no rate for: ${skipped.join(", ")}.` : "");
     else if (mixed) fxNote = "Exchange rates couldn’t load, so each currency is shown separately. Open the app with internet to convert.";
     $("fx-note").textContent = fxNote;
-    scheduleSync(); renderInsights(); renderReport(); renderHistory();
+    scheduleSync(); renderInsights(); try { renderReport(); } catch (e) { /* the report must never stop the dashboard */ } renderHistory();
     if ($("cal-tip")) $("cal-tip").hidden = usingSample || !real.some(s => s.status === "active" && s.date);
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
@@ -649,7 +649,7 @@
       h += `<h2>Business and personal</h2><div class="card">${parts.map(([k, l]) => `<div class="ins-row"><div class="ins-top"><span>${l}</span><span class="amt">${esc(money(B.byUse[k], target))}<small> /month · ${pct(B.byUse[k] / B.total)}</small></span></div>${bar(B.byUse[k] / B.total)}</div>`).join("")}
         ${unsetCount ? `<p class="note" style="margin:0">${unsetCount} active subscription${unsetCount > 1 ? "s aren’t" : " isn’t"} tagged Business or Personal yet. Tap ✎ on the dashboard to tag ${unsetCount > 1 ? "them" : "it"}.</p>` : ""}</div>`;
     }
-    if (insFilter !== "personal") {
+    if (insFilter !== "personal" && Insights.byClient) {
       const CL = Insights.byClient(real, target, convert);
       if (CL.rows.some(r => r.client)) h += `<h2>Business by client or project</h2><div class="card">${CL.rows.map(r => `<div class="ins-row"><div class="ins-top"><span>${esc(r.label)} <small>${r.count}</small></span><span class="amt">${esc(money(r.monthly, target))}<small> /month · ${pct(r.share)}</small></span></div>${bar(r.share)}</div>`).join("")}<a class="btn ghost" href="#report" style="justify-self:start">Business report</a></div>`;
       else if (CL.rows.length) h += `<p class="note"><a href="#report">See your business report</a>. Add a client or project name to a Business subscription to see the cost for each.</p>`;
@@ -751,7 +751,7 @@
   // ---------- Pages ----------
   const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report"];
   function renderReport() {
-    const box = $("rep-body"), page = $("report"); if (!box || !page || page.classList.contains("hide")) return;
+    const box = $("rep-body"), page = $("report"); if (!box || !page || !window.Report || !Insights.byClient || page.classList.contains("hide")) return;
     const target = totalCur(), codes = Array.from(new Set(Store.load().filter(s => s.status === "active" && s.currency).map(s => s.currency)));
     fillCurSelect(target, codes, "rep-cur");
     window.Report.render({ el: box, Store, Insights, esc, money, fmtDate, convert, target, cfg, today: isoIn(0), addPeriods, fxReady: () => !!(fx && fx.rates), refreshFx, download: downloadFile, stamp });
@@ -764,9 +764,9 @@
       { el: $("alternatives"), esc, logoHtml, money, fmtDate, cfg });
   }
   function route() {
-    const raw = (location.hash || "#home").slice(1), h = raw.split("/")[0], page = PAGES.includes(h) ? h : "home";
+    const raw = (location.hash || "#home").slice(1), h = raw.split("/")[0], page = PAGES.includes(h) && $(h) ? h : "home";
     if (page !== "alternatives" && window.Alternatives) window.Alternatives.stop();
-    PAGES.forEach(p => $(p).classList.toggle("hide", p !== page));
+    PAGES.forEach(p => { const pg = $(p); if (pg) pg.classList.toggle("hide", p !== page); });
     if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
     if (page !== "scan") { /* images are never stored: nothing to clean up */ }
