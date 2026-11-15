@@ -44,6 +44,16 @@
   function renderNav() {
     const b = $("acctbtn"); if (!b) return; const u = user();
     b.textContent = u ? initial(u) : "Sign in"; b.className = "acct-chip" + (u ? " in" : ""); b.setAttribute("aria-label", u ? "Your account" : "Sign in");
+    const su = $("signupbtn"); if (su) su.classList.toggle("hide", !!u);
+  }
+
+  // Makes sure the Account page is the one on screen when the address says #account (and hidden otherwise).
+  function place() {
+    const box = $("account"); if (!box) return;
+    if ((location.hash || "").split("/")[0] === "#account") {
+      document.querySelectorAll("main").forEach(m => m.classList.toggle("hide", m !== box));
+      const b = $("navbtn"); if (b) { b.textContent = "Home"; b.href = "#home"; }
+    } else box.classList.add("hide");
   }
 
   function render() {
@@ -142,15 +152,20 @@
 
   function init() {
     renderNav();
-    addEventListener("hashchange", render);
+    if (location.hash === "#account/signup") { mode = "up"; view = "form"; }
+    const at = $("acctbtn"), su = $("signupbtn");
+    if (at) at.addEventListener("click", () => { if (!user()) { mode = "in"; view = "form"; recovery = false; } render(); });
+    if (su) su.addEventListener("click", () => { mode = "up"; view = "form"; recovery = false; render(); });
+    place();
+    addEventListener("hashchange", () => { if (location.hash === "#account/signup") { mode = "up"; view = "form"; } place(); render(); });
     addEventListener("pageshow", e => { if (e.persisted) { setBusy(false); msg(""); } });   // coming back from Google with the Back button
-    const c = client(); if (!c) { render(); return; }
+    const c = client(); if (!c) { place(); render(); return; }
     c.auth.onAuthStateChange((event, s) => {
       session = s || null;
       if (event === "PASSWORD_RECOVERY") { recovery = true; if (location.hash !== "#account") location.hash = "#account"; }
-      renderNav(); setTimeout(render, 0);
+      renderNav(); setTimeout(() => { place(); render(); }, 0);
     });
-    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; renderNav(); render(); }).catch(() => { render(); });
+    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; renderNav(); place(); render(); }).catch(() => { render(); });
   }
 
   window.Auth = { user, signOut, client };
