@@ -119,6 +119,10 @@ nav .btn.ghost{padding:9px 16px;font-size:14px}
 .linkbtn{border:0;background:none;color:var(--teal);font:500 14px var(--body);text-decoration:underline;cursor:pointer;padding:4px 0;justify-self:start}
 .avatar{width:56px;height:56px;border-radius:99px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font:800 24px var(--head)}
 @media(prefers-color-scheme:dark){.avatar{color:#0E1A1C}}
+.welcome{font:800 24px var(--head);color:var(--teal);margin:0 0 2px}
+.pw{position:relative;display:block}.pw input{width:100%;padding-right:74px}
+.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--teal);font:700 14px var(--body);padding:10px;cursor:pointer}
+.name-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.name-row label{min-width:0}
 </style>
 </head>
 <body>
@@ -145,6 +149,7 @@ nav .btn.ghost{padding:9px 16px;font-size:14px}
 
 <!-- DASHBOARD -->
 <main id="dashboard" class="hide">
+  <p class="welcome hide" id="welcome" aria-live="polite"></p>
   <h1 style="font-size:34px">Dashboard</h1>
   <p><span class="badge" id="sample-badge">Sample data</span></p>
   <label class="note" style="display:flex;gap:8px;align-items:center;margin:0 0 10px">Show totals in <select id="total-cur" aria-label="Currency for totals" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit"></select></label>
