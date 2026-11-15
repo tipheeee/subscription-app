@@ -38,13 +38,22 @@
   function setBusy(b) { busy = b; document.querySelectorAll("#account button").forEach(x => { x.disabled = b; }); }
 
   function user() { return session && session.user ? session.user : null; }
-  function nameOf(u) { const md = (u && u.user_metadata) || {}; return md.full_name || md.name || ""; }
-  function initial(u) { const s = nameOf(u) || (u && u.email) || "?"; return s.trim().charAt(0).toUpperCase(); }
+  function nameOf(u) { const md = (u && u.user_metadata) || {}; const both = [md.first_name || md.given_name, md.last_name || md.family_name].filter(Boolean).join(" "); return md.full_name || md.name || both || ""; }
+  function firstName(u) { const md = (u && u.user_metadata) || {}; return String(md.first_name || md.given_name || nameOf(u).split(" ")[0] || "").trim(); }
+  function initial(u) { const s = firstName(u) || (u && u.email) || "?"; return s.trim().charAt(0).toUpperCase(); }
+  // The greeting at the top of the dashboard.
+  function greet() {
+    const el = $("welcome"); if (!el) return; const u = user();
+    el.textContent = u ? (firstName(u) ? "Welcome, " + firstName(u) : "Welcome") : ""; el.classList.toggle("hide", !u);
+  }
+  // A password box with a Show / Hide button.
+  const pwBox = (id, auto, ph) => `<span class="pw"><input type="password" id="${id}" autocomplete="${auto}"${ph ? ` placeholder="${ph}"` : ""}><button type="button" class="eye" aria-label="Show password" aria-pressed="false">Show</button></span>`;
 
   function renderNav() {
     const b = $("acctbtn"); if (!b) return; const u = user();
     b.textContent = u ? initial(u) : "Sign in"; b.className = "acct-chip" + (u ? " in" : ""); b.setAttribute("aria-label", u ? "Your account" : "Sign in");
     const su = $("signupbtn"); if (su) su.classList.toggle("hide", !!u);
+    greet();
   }
 
   // Makes sure the Account page is the one on screen when the address says #account (and hidden otherwise).
@@ -66,12 +75,12 @@
       return;
     }
     if (recovery) {
-      box.innerHTML = '<h1 style="font-size:34px">New password</h1><div class="card"><label>Choose a new password<input type="password" id="a-pw" autocomplete="new-password" minlength="8"></label><button class="btn" id="a-setpw">Save password</button><p class="amsg" id="a-msg" role="status"></p></div>';
+      box.innerHTML = `<h1 style="font-size:34px">New password</h1><div class="card"><label>Choose a new password${pwBox("a-pw", "new-password")}</label><button class="btn" id="a-setpw">Save password</button><p class="amsg" id="a-msg" role="status"></p></div>`;
       $("a-setpw").onclick = setPassword; return;
     }
     if (u) {
       const prov = (u.app_metadata && u.app_metadata.provider) === "google" ? "Google" : "email";
-      box.innerHTML = `<h1 style="font-size:34px">Account</h1><div class="card"><div class="avatar" aria-hidden="true">${esc(initial(u))}</div>${nameOf(u) ? `<b>${esc(nameOf(u))}</b>` : ""}<span>${esc(u.email || "")}</span><span class="note" style="margin:0">Signed in with ${prov}</span></div>
+      box.innerHTML = `<h1 style="font-size:34px">Account</h1><div class="card"><div class="avatar" aria-hidden="true">${esc(initial(u))}</div><b>Welcome${firstName(u) ? ", " + esc(firstName(u)) : ""}</b>${nameOf(u) ? `<span>${esc(nameOf(u))}</span>` : ""}<span>${esc(u.email || "")}</span><span class="note" style="margin:0">Signed in with ${prov}</span></div>
         <div class="card"><b>Your subscriptions</b><p class="note" style="margin:0">For now, your subscriptions are still saved on this device only. Saving them to your account, so they follow you to any phone, is coming next.</p></div>
         <p><button class="btn ghost" id="a-out">Sign out</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p><p class="amsg" id="a-msg" role="status"></p>`;
       $("a-out").onclick = signOut; return;
@@ -87,9 +96,9 @@
         <div class="tabs" role="tablist"><button type="button" id="t-in" class="${up ? "" : "on"}" role="tab">Sign in</button><button type="button" id="t-up" class="${up ? "on" : ""}" role="tab">Create account</button></div>
         <button type="button" class="gbtn" id="a-google">${G}<span>Continue with Google</span></button>
         <div class="or">or use email</div>
-        ${up ? '<label>Your name<input type="text" id="a-name" autocomplete="name" placeholder="Optional"></label>' : ""}
+        ${up ? '<div class="name-row"><label>First name<input type="text" id="a-first" autocomplete="given-name" required></label><label>Last name<input type="text" id="a-last" autocomplete="family-name" required></label></div>' : ""}
         <label>Email<input type="email" id="a-email" autocomplete="email" inputmode="email" placeholder="you@example.com"></label>
-        <label>Password<input type="password" id="a-pw" autocomplete="${up ? "new-password" : "current-password"}" placeholder="${up ? "At least 8 characters" : ""}"></label>
+        <label>Password${pwBox("a-pw", up ? "new-password" : "current-password", up ? "At least 8 characters" : "")}</label>
         <button type="button" class="btn" id="a-go">${up ? "Create account" : "Sign in"}</button>
         ${up ? "" : '<button type="button" class="linkbtn" id="a-forgot">Forgot your password?</button>'}
         <p class="amsg" id="a-msg" role="status"></p>
@@ -99,7 +108,7 @@
     $("t-in").onclick = () => { mode = "in"; render(); }; $("t-up").onclick = () => { mode = "up"; render(); };
     $("a-google").onclick = google; $("a-go").onclick = up ? signUp : signIn;
     const f = $("a-forgot"); if (f) f.onclick = forgot;
-    ["a-email", "a-pw", "a-name"].forEach(id => { const el = $(id); if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") (up ? signUp : signIn)(); }); });
+    ["a-email", "a-pw", "a-first", "a-last"].forEach(id => { const el = $(id); if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") (up ? signUp : signIn)(); }); });
   }
 
   const val = id => { const el = $(id); return el ? el.value.trim() : ""; };
@@ -114,15 +123,32 @@
     if (!email || !pw) return msg("Enter your email and password.", "err");
     setBusy(true); msg("Signing in…");
     try { const { error } = await c.auth.signInWithPassword({ email, password: pw }); if (error) throw error; setBusy(false); msg(""); }
-    catch (e) { setBusy(false); msg(nice(e), "err"); }
+    catch (e) {
+      let text = nice(e);
+      if (/invalid login/i.test(String((e && e.message) || ""))) text = await whyFailed(c, email, text);
+      setBusy(false); msg(text, "err");
+    }
+  }
+  // Supabase only says "invalid login" for both a wrong password and a missing account. This asks the database which one it is.
+  async function whyFailed(c, email, fallback) {
+    try {
+      const { data, error } = await c.rpc("account_status", { check_email: email });
+      if (error) return fallback;
+      const p = String(data || "");
+      if (!p) return "Account not found. Tap “Create account” above to sign up.";
+      if (p.includes("email")) return "That password isn’t right. Try again, or tap “Forgot your password?”.";
+      return "This email is linked to Google. Tap “Continue with Google”.";
+    } catch (e) { return fallback; }
   }
   async function signUp() {
-    const c = client(); if (!c || busy) return; const email = val("a-email"), pw = $("a-pw") ? $("a-pw").value : "", name = val("a-name");
+    const c = client(); if (!c || busy) return; const email = val("a-email"), pw = $("a-pw") ? $("a-pw").value : "", first = val("a-first"), last = val("a-last");
+    if (!first) return msg("Please enter your first name.", "err");
+    if (!last) return msg("Please enter your last name.", "err");
     if (!email || !pw) return msg("Enter your email and a password.", "err");
     if (pw.length < 8) return msg("Your password needs at least 8 characters.", "err");
     setBusy(true); msg("Creating your account…");
     try {
-      const { data, error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: back(), data: name ? { full_name: name } : {} } });
+      const { data, error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: back(), data: { first_name: first, last_name: last, full_name: first + " " + last } } });
       if (error) throw error;
       setBusy(false);
       if (data && data.user && data.user.identities && data.user.identities.length === 0) return msg("That email already has an account. Try signing in instead.", "err");
@@ -152,6 +178,13 @@
 
   function init() {
     renderNav();
+    const box = $("account");
+    if (box) box.addEventListener("click", e => {
+      const b = e.target.closest && e.target.closest(".eye"); if (!b) return;
+      const inp = b.parentNode.querySelector("input"); if (!inp) return;
+      const show = inp.type === "password"; inp.type = show ? "text" : "password";
+      b.textContent = show ? "Hide" : "Show"; b.setAttribute("aria-label", show ? "Hide password" : "Show password"); b.setAttribute("aria-pressed", String(show));
+    });
     if (location.hash === "#account/signup") { mode = "up"; view = "form"; }
     const at = $("acctbtn"), su = $("signupbtn");
     if (at) at.addEventListener("click", () => { if (!user()) { mode = "in"; view = "form"; recovery = false; } render(); });
