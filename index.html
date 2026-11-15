@@ -103,6 +103,144 @@ details{margin:14px 0}pre{white-space:pre-wrap;font-size:13px;background:var(--c
 .rp-br{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}.rp-l{width:112px;flex:none;color:var(--mute);overflow-wrap:anywhere}.rp-t{flex:1;height:12px;border-radius:4px;background:var(--line);min-width:0}.rp-t i{display:block;height:100%;border-radius:4px;background:var(--teal)}.rp-v{min-width:78px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
 .rp-actions{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}.rp-printhead{display:none}
 @media print{nav,footer,.no-print,#editor{display:none!important}body{background:#fff!important}.rp-printhead{display:block;margin:0 0 12px}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+.acct-chip{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:42px;padding:0 14px;border-radius:99px;border:2px solid var(--teal);color:var(--teal);font:700 15px var(--body);text-decoration:none;margin-right:8px}
+.acct-chip.in{background:var(--teal);color:#fff;padding:0;width:42px}
+@media(prefers-color-scheme:dark){.acct-chip.in{color:#0E1A1C}}
+.nav-r{display:flex;align-items:center}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;border:1px solid var(--line);border-radius:10px;padding:13px 16px;font:700 16px var(--body);background:#fff;color:#16282C;cursor:pointer}
+.gbtn svg{width:20px;height:20px;flex:none}
+.or{display:flex;align-items:center;gap:12px;color:var(--mute);font-size:14px}.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--paper);border-radius:10px;padding:4px}
+.tabs button{border:0;border-radius:8px;padding:10px;font:700 15px var(--body);background:transparent;color:var(--mute);cursor:pointer}
+.tabs button.on{background:var(--card);color:var(--teal);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.amsg{font-size:14px;min-height:1.3em;margin:0}.amsg.err{color:var(--coral);font-weight:500}.amsg.ok{color:var(--teal);font-weight:500}
+.linkbtn{border:0;background:none;color:var(--teal);font:500 14px var(--body);text-decoration:underline;cursor:pointer;padding:4px 0;justify-self:start}
+.avatar{width:56px;height:56px;border-radius:99px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font:800 24px var(--head)}
+@media(prefers-color-scheme:dark){.avatar{color:#0E1A1C}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav><span class="brand" data-app-name></span><span class="nav-r"><a class="acct-chip" href="#account" id="acctbtn" aria-label="Account">Sign in</a><a class="btn ghost" href="#dashboard" id="navbtn">Open dashboard</a></span></nav>
+
+<!-- LANDING -->
+<main id="home">
+  <h1>See every subscription before it charges you.</h1>
+  <p class="lead">Upload a screenshot. We read it, list what you pay for, and remind you before each renewal.</p>
+  <div class="hero-cta"><a class="btn" href="#dashboard">Try the dashboard</a></div>
+
+  <h2>Coming up this week</h2>
+  <div class="renewals" id="demo-list"></div>
+  <p class="note">Example data, not a real account.</p>
+
+  <h2>Your screenshots stay yours</h2>
+  <div class="trust">
+    <div><b>Read on your device.</b> Your screenshot is read by your own browser and never sent to a server. This app does not store it.</div>
+    <div><b>Nothing invented.</b> If a price or date can’t be read, we mark it missing and you fill it in.</div>
+    <div><b>No bank details, ever.</b> We never ask for passwords or card numbers.</div>
+  </div>
+</main>
+
+<!-- DASHBOARD -->
+<main id="dashboard" class="hide">
+  <h1 style="font-size:34px">Dashboard</h1>
+  <p><span class="badge" id="sample-badge">Sample data</span></p>
+  <label class="note" style="display:flex;gap:8px;align-items:center;margin:0 0 10px">Show totals in <select id="total-cur" aria-label="Currency for totals" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit"></select></label>
+  <div class="stats">
+    <div class="stat"><b id="s-month">–</b><span>Per month</span></div>
+    <div class="stat"><b id="s-year">–</b><span>Per year (estimate)</span></div>
+  </div>
+  <p class="note" id="fx-note"></p>
+  <div id="due-box"></div>
+  <div id="remind-box"></div>
+  <h2>Upcoming renewals</h2>
+  <div class="renewals" id="dash-list"></div>
+  <p class="note" id="unpriced"></p>
+  <div class="cal-tip" id="cal-tip" hidden>
+    <b>Never miss a renewal</b>
+    <p>Phone notifications are easy to miss. Adding your renewals to your calendar is the best way to be sure you see them. It works even when the app is closed.</p>
+    <button class="btn" id="cal-tip-btn">Add all to my calendar</button>
+    <p class="note" id="cal-tip-msg" style="margin:8px 0 0"></p>
+  </div>
+  <div class="empty">
+    <a class="btn" href="#scan">Scan a screenshot</a> <a class="btn ghost" href="#insights">Insights</a> <a class="btn ghost" href="#history">History</a> <a class="btn ghost" href="#settings">Reminder settings</a>
+  </div>
+</main>
+
+<!-- SCAN -->
+<main id="scan" class="hide">
+  <h1 style="font-size:34px">Scan a screenshot</h1>
+  <p class="lead" style="font-size:16px">Pick one or more screenshots of your subscriptions or billing pages. They are only used to find your subscriptions and are not saved by this app.</p>
+  <div class="filebtn" style="margin:18px 0"><span class="btn">Choose screenshots</span><input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple aria-label="Choose screenshots"></div>
+  <p class="note" id="scan-msg"></p>
+  <div id="review-wrap" class="hide">
+    <div id="review"></div>
+    <div id="save-row"><button class="btn" id="save">Save ticked subscriptions</button></div>
+    <details><summary>What we read</summary><pre id="raw"></pre></details>
+  </div>
+</main>
+
+<!-- INSIGHTS -->
+<main id="insights" class="hide">
+  <h1 style="font-size:34px">Insights</h1>
+  <p class="lead" style="font-size:16px">See what your subscriptions cost, and what is business and what is personal.</p>
+  <label class="note" style="display:flex;gap:8px;align-items:center;margin:0 0 12px">Show amounts in <select id="ins-cur" aria-label="Currency for insights" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit"></select></label>
+  <div id="ins-body"></div>
+  <p style="margin-top:20px"><a class="btn ghost" href="#report">Business report</a> <a class="btn ghost" href="#history">History and export</a> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
+</main>
+
+<!-- BUSINESS REPORT -->
+<main id="report" class="hide">
+  <h1 style="font-size:34px">Business report</h1>
+  <p class="lead no-print" style="font-size:16px">What your business subscriptions cost, in one place. Share it with your accountant or keep it for your records.</p>
+  <label class="note no-print" style="display:flex;gap:8px;align-items:center;margin:0 0 12px">Show amounts in <select id="rep-cur" aria-label="Currency for the report" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)"></select></label>
+  <div id="rep-body"></div>
+  <p class="no-print" style="margin-top:20px"><a class="btn ghost" href="#insights">Back to insights</a> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
+</main>
+
+<!-- HISTORY -->
+<main id="history" class="hide">
+  <h1 style="font-size:34px">History</h1>
+  <p class="lead" style="font-size:16px">A record of what you confirmed as paid, cancelled or ended. Kept on this device.</p>
+  <h2 style="margin-top:8px">Export</h2>
+  <div class="exports"><button class="btn" id="exp-subs">Download subscriptions (CSV)</button><button class="btn" id="exp-hist">Download history (CSV)</button></div>
+  <p class="note" id="exp-msg">Spreadsheet files you can give to an accountant or use for your expense records.</p>
+  <div id="hist-body"></div>
+  <p style="margin-top:20px"><button class="btn ghost" id="hist-clear">Clear history</button> <a class="btn ghost" href="#insights">Insights</a> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p>
+</main>
+
+<!-- SETTINGS -->
+<main id="settings" class="hide">
+  <h1 style="font-size:34px">Reminders</h1>
+  <p class="lead" style="font-size:16px">Choose when, and how, you want to be reminded.</p>
+  <div class="card">
+    <b>When</b>
+    <label class="inc"><input type="checkbox" data-d="7"> 7 days before</label>
+    <label class="inc"><input type="checkbox" data-d="3"> 3 days before</label>
+    <label class="inc"><input type="checkbox" data-d="1"> 1 day before</label>
+    <label class="inc"><input type="checkbox" data-d="0"> On the day</label>
+  </div>
+  <h2>How</h2>
+  <div class="card">
+    <div class="ch-head"><b>🔔 Push notifications</b><label class="inc"><input type="checkbox" id="push-on"> On</label></div>
+    <p class="note" id="notif-status" style="margin:0"></p>
+    <div class="two2"><label>Morning<input type="time" id="t-am"></label><label>Evening<input type="time" id="t-pm"></label></div>
+    <label class="inc"><input type="checkbox" id="pm-on"> Also remind me in the evening (twice a day)</label>
+    <button class="btn ghost" id="notif-test">Send a test</button>
+    <p class="note" id="push-note" style="margin:0"></p>
+  </div>
+  <div class="card">
+    <b>📅 Calendar</b>
+    <p class="note" style="margin:0"><b>Recommended.</b> Notifications are easy to miss, and a calendar alert is the most reliable reminder. Works even when the app is closed. Adds every active subscription to your phone’s calendar as a repeating event, with alerts for the days you chose above. Open the file and choose “Add to calendar”.</p>
+    <label class="inc"><input type="checkbox" id="cal-ask"> After I tap “It renewed”, offer to update my calendar</label>
+    <button class="btn" id="cal-btn">Download calendar file</button>
+    <p class="note" id="cal-msg" style="margin:0"></p>
+  </div>
+  <div class="card">
+    <div class="ch-head"><b>✉️ Email</b><span class="badge">Not active yet</spap:12px}
+.rp-br{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}.rp-l{width:112px;flex:none;color:var(--mute);overflow-wrap:anywhere}.rp-t{flex:1;height:12px;border-radius:4px;background:var(--line);min-width:0}.rp-t i{display:block;height:100%;border-radius:4px;background:var(--teal)}.rp-v{min-width:78px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.rp-actions{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}.rp-printhead{display:none}
+@media print{nav,footer,.no-print,#editor{display:none!important}body{background:#fff!important}.rp-printhead{display:block;margin:0 0 12px}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style>
 </head>
 <body>
