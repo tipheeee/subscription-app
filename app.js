@@ -749,7 +749,7 @@
   });
 
   // ---------- Pages ----------
-  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report"];
+  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report", "account"];
   function renderReport() {
     const box = $("rep-body"), page = $("report"); if (!box || !page || !window.Report || !Insights.byClient || page.classList.contains("hide")) return;
     const target = totalCur(), codes = Array.from(new Set(Store.load().filter(s => s.status === "active" && s.currency).map(s => s.currency)));

@@ -1,0 +1,158 @@
+// Sign-in for Yanju (Google or email) using Supabase.
+// The app still works without signing in. Nothing here changes how subscriptions are saved yet.
+(function () {
+  const cfg = window.APP_CONFIG || {};
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let sb = null, session = null, mode = "in", view = "form", recovery = false, busy = false;
+
+  const G = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>';
+
+  // Where Google and email links send the person back to.
+  const back = () => location.origin + location.pathname + "#account";
+
+  function client() {
+    if (sb) return sb;
+    if (!(window.supabase && cfg.supabaseUrl && cfg.supabaseKey)) return null;
+    try {
+      sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" } });
+    } catch (e) { sb = null; }
+    return sb;
+  }
+
+  // Turns Supabase's technical errors into plain sentences.
+  function nice(err) {
+    const m = String((err && (err.message || err.error_description)) || err || "").toLowerCase();
+    if (m.includes("invalid login")) return "That email and password don’t match. Check them and try again.";
+    if (m.includes("not confirmed")) return "Please confirm your email first. Open the message we sent you and tap the link.";
+    if (m.includes("already registered") || m.includes("already been registered")) return "That email already has an account. Try signing in instead.";
+    if (m.includes("rate limit") || m.includes("too many") || (m.includes("after") && m.includes("seconds"))) return "Too many attempts. Please wait a few minutes, or continue with Google.";
+    if (m.includes("password") && (m.includes("least") || m.includes("short") || m.includes("weak"))) return "Choose a stronger password (at least 8 characters).";
+    if (m.includes("valid email") || m.includes("invalid email")) return "That email address doesn’t look right.";
+    if (m.includes("provider") && m.includes("not enabled")) return "Google sign-in isn’t switched on yet. Use email for now.";
+    if (m.includes("failed to fetch") || m.includes("network") || m.includes("load failed")) return "Couldn’t reach sign-in. Check your internet and try again.";
+    return "Something went wrong. Please try again.";
+  }
+
+  function msg(text, kind) { const el = $("a-msg"); if (!el) return; el.textContent = text || ""; el.className = "amsg" + (kind ? " " + kind : ""); }
+  function setBusy(b) { busy = b; document.querySelectorAll("#account button").forEach(x => { x.disabled = b; }); }
+
+  function user() { return session && session.user ? session.user : null; }
+  function nameOf(u) { const md = (u && u.user_metadata) || {}; return md.full_name || md.name || ""; }
+  function initial(u) { const s = nameOf(u) || (u && u.email) || "?"; return s.trim().charAt(0).toUpperCase(); }
+
+  function renderNav() {
+    const b = $("acctbtn"); if (!b) return; const u = user();
+    b.textContent = u ? initial(u) : "Sign in"; b.className = "acct-chip" + (u ? " in" : ""); b.setAttribute("aria-label", u ? "Your account" : "Sign in");
+  }
+
+  function render() {
+    const box = $("account"); if (!box) return;
+    const u = user();
+    if (box.classList.contains("hide")) return;
+    if (!client()) {
+      box.innerHTML = '<h1 style="font-size:34px">Account</h1><div class="card"><b>Sign-in isn’t available right now.</b><p class="note" style="margin:0">It needs an internet connection. Your subscriptions still work on this device.</p><button class="btn" id="a-retry">Try again</button></div><p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>';
+      $("a-retry").onclick = () => { render(); };
+      return;
+    }
+    if (recovery) {
+      box.innerHTML = '<h1 style="font-size:34px">New password</h1><div class="card"><label>Choose a new password<input type="password" id="a-pw" autocomplete="new-password" minlength="8"></label><button class="btn" id="a-setpw">Save password</button><p class="amsg" id="a-msg" role="status"></p></div>';
+      $("a-setpw").onclick = setPassword; return;
+    }
+    if (u) {
+      const prov = (u.app_metadata && u.app_metadata.provider) === "google" ? "Google" : "email";
+      box.innerHTML = `<h1 style="font-size:34px">Account</h1><div class="card"><div class="avatar" aria-hidden="true">${esc(initial(u))}</div>${nameOf(u) ? `<b>${esc(nameOf(u))}</b>` : ""}<span>${esc(u.email || "")}</span><span class="note" style="margin:0">Signed in with ${prov}</span></div>
+        <div class="card"><b>Your subscriptions</b><p class="note" style="margin:0">For now, your subscriptions are still saved on this device only. Saving them to your account, so they follow you to any phone, is coming next.</p></div>
+        <p><button class="btn ghost" id="a-out">Sign out</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p><p class="amsg" id="a-msg" role="status"></p>`;
+      $("a-out").onclick = signOut; return;
+    }
+    if (view === "sent") {
+      box.innerHTML = '<h1 style="font-size:34px">Check your email</h1><div class="card"><b>We sent you a link.</b><p class="note" style="margin:0">Open the email and tap the link. Then come back here and sign in. If you don’t see it, look in spam.</p><button class="btn" id="a-back">Go to sign in</button></div>';
+      $("a-back").onclick = () => { view = "form"; mode = "in"; render(); }; return;
+    }
+    const up = mode === "up";
+    box.innerHTML = `<h1 style="font-size:34px">${up ? "Create your account" : "Sign in"}</h1>
+      <p class="lead" style="font-size:16px">${up ? "Save your subscriptions to your own account." : "Welcome back."}</p>
+      <div class="card">
+        <div class="tabs" role="tablist"><button type="button" id="t-in" class="${up ? "" : "on"}" role="tab">Sign in</button><button type="button" id="t-up" class="${up ? "on" : ""}" role="tab">Create account</button></div>
+        <button type="button" class="gbtn" id="a-google">${G}<span>Continue with Google</span></button>
+        <div class="or">or use email</div>
+        ${up ? '<label>Your name<input type="text" id="a-name" autocomplete="name" placeholder="Optional"></label>' : ""}
+        <label>Email<input type="email" id="a-email" autocomplete="email" inputmode="email" placeholder="you@example.com"></label>
+        <label>Password<input type="password" id="a-pw" autocomplete="${up ? "new-password" : "current-password"}" placeholder="${up ? "At least 8 characters" : ""}"></label>
+        <button type="button" class="btn" id="a-go">${up ? "Create account" : "Sign in"}</button>
+        ${up ? "" : '<button type="button" class="linkbtn" id="a-forgot">Forgot your password?</button>'}
+        <p class="amsg" id="a-msg" role="status"></p>
+      </div>
+      <p class="note">Signing in is optional. Without it, the app keeps working on this device.</p>
+      <p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`;
+    $("t-in").onclick = () => { mode = "in"; render(); }; $("t-up").onclick = () => { mode = "up"; render(); };
+    $("a-google").onclick = google; $("a-go").onclick = up ? signUp : signIn;
+    const f = $("a-forgot"); if (f) f.onclick = forgot;
+    ["a-email", "a-pw", "a-name"].forEach(id => { const el = $(id); if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") (up ? signUp : signIn)(); }); });
+  }
+
+  const val = id => { const el = $(id); return el ? el.value.trim() : ""; };
+
+  async function google() {
+    const c = client(); if (!c || busy) return; setBusy(true); msg("Opening Google…");
+    try { const { error } = await c.auth.signInWithOAuth({ provider: "google", options: { redirectTo: back() } }); if (error) throw error; setTimeout(() => { setBusy(false); msg(""); }, 3000); }   // the page leaves for Google; this only matters if the person comes back
+    catch (e) { setBusy(false); msg(nice(e), "err"); }
+  }
+  async function signIn() {
+    const c = client(); if (!c || busy) return; const email = val("a-email"), pw = $("a-pw") ? $("a-pw").value : "";
+    if (!email || !pw) return msg("Enter your email and password.", "err");
+    setBusy(true); msg("Signing in…");
+    try { const { error } = await c.auth.signInWithPassword({ email, password: pw }); if (error) throw error; setBusy(false); msg(""); }
+    catch (e) { setBusy(false); msg(nice(e), "err"); }
+  }
+  async function signUp() {
+    const c = client(); if (!c || busy) return; const email = val("a-email"), pw = $("a-pw") ? $("a-pw").value : "", name = val("a-name");
+    if (!email || !pw) return msg("Enter your email and a password.", "err");
+    if (pw.length < 8) return msg("Your password needs at least 8 characters.", "err");
+    setBusy(true); msg("Creating your account…");
+    try {
+      const { data, error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: back(), data: name ? { full_name: name } : {} } });
+      if (error) throw error;
+      setBusy(false);
+      if (data && data.user && data.user.identities && data.user.identities.length === 0) return msg("That email already has an account. Try signing in instead.", "err");
+      if (data && data.session) { msg(""); return; }      // email confirmation is switched off: already signed in
+      view = "sent"; render();
+    } catch (e) { setBusy(false); msg(nice(e), "err"); }
+  }
+  async function forgot() {
+    const c = client(); if (!c || busy) return; const email = val("a-email");
+    if (!email) return msg("Type your email above first, then tap “Forgot your password?”.", "err");
+    setBusy(true); msg("Sending…");
+    try { const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo: back() }); if (error) throw error; setBusy(false); msg("If that email has an account, we sent a link to reset the password.", "ok"); }
+    catch (e) { setBusy(false); msg(nice(e), "err"); }
+  }
+  async function setPassword() {
+    const c = client(); if (!c || busy) return; const pw = $("a-pw") ? $("a-pw").value : "";
+    if (pw.length < 8) return msg("Your password needs at least 8 characters.", "err");
+    setBusy(true); msg("Saving…");
+    try { const { error } = await c.auth.updateUser({ password: pw }); if (error) throw error; recovery = false; setBusy(false); render(); msg("Password saved. You’re signed in.", "ok"); }
+    catch (e) { setBusy(false); msg(nice(e), "err"); }
+  }
+  async function signOut() {
+    const c = client(); if (!c || busy) return; setBusy(true);
+    try { await c.auth.signOut(); } catch (e) { /* the local session is cleared either way */ }
+    session = null; setBusy(false); view = "form"; mode = "in"; renderNav(); render();
+  }
+
+  function init() {
+    renderNav();
+    addEventListener("hashchange", render);
+    addEventListener("pageshow", e => { if (e.persisted) { setBusy(false); msg(""); } });   // coming back from Google with the Back button
+    const c = client(); if (!c) { render(); return; }
+    c.auth.onAuthStateChange((event, s) => {
+      session = s || null;
+      if (event === "PASSWORD_RECOVERY") { recovery = true; if (location.hash !== "#account") location.hash = "#account"; }
+      renderNav(); setTimeout(render, 0);
+    });
+    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; renderNav(); render(); }).catch(() => { render(); });
+  }
+
+  window.Auth = { user, signOut, client };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+})();

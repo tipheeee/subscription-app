@@ -3,6 +3,9 @@ window.APP_CONFIG = {
   name: "Yanju",
   tagline: "Your heads up before every charge.",
   defaultCurrency: "NGN",
+  // Sign-in and customer database (Supabase). Both values below are public and safe to keep here.
+  supabaseUrl: "https://utiumcvozfohydmqalwo.supabase.co",
+  supabaseKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aXVtY3ZvemZvaHlkbXFhbHdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ1OTk5MTMsImV4cCI6MjExMDE3NTkxM30.emzJF93JqB6ZeV6WNW2QsvYvjh25XWfi3A9jI3yknMk",
   // Alternatives server address. Leave as "" to hide results until it is set up.
   altApi: "https://yanju-alternatives.olaoluwaoluwatoyin0.workers.dev/",
   // Reminder server address. Leave as "" to keep reminders on this device only.
