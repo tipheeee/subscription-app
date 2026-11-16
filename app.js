@@ -781,5 +781,6 @@
   }
   addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
+  addEventListener("yanju:synced", () => { renderAll(); });   // subscriptions arrived from, or were cleared for, the account
   setInterval(() => checkReminders(), 30 * 60 * 1000);
 })();

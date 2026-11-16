@@ -81,9 +81,14 @@
     if (u) {
       const prov = (u.app_metadata && u.app_metadata.provider) === "google" ? "Google" : "email";
       box.innerHTML = `<h1 style="font-size:34px">Account</h1><div class="card"><div class="avatar" aria-hidden="true">${esc(initial(u))}</div><b>Welcome${firstName(u) ? ", " + esc(firstName(u)) : ""}</b>${nameOf(u) ? `<span>${esc(nameOf(u))}</span>` : ""}<span>${esc(u.email || "")}</span><span class="note" style="margin:0">Signed in with ${prov}</span></div>
-        <div class="card"><b>Your subscriptions</b><p class="note" style="margin:0">For now, your subscriptions are still saved on this device only. Saving them to your account, so they follow you to any phone, is coming next.</p></div>
+        <div class="card"><b>Your subscriptions</b><p class="note" style="margin:0" id="sync-status" role="status">${esc(window.Sync ? window.Sync.statusText() : "")}</p><p class="note" style="margin:0">They are saved to your account, so they follow you to any phone where you sign in.</p>
+        <p style="margin:0"><button class="btn ghost" id="a-dl">Download my data</button> ${window.Sync && window.Sync.paused() ? '<button class="btn" id="a-resume">Turn saving back on</button>' : '<button class="btn ghost" id="a-del">Delete my saved data</button>'}</p></div>
         <p><button class="btn ghost" id="a-out">Sign out</button> <a class="btn ghost" href="#dashboard">Back to dashboard</a></p><p class="amsg" id="a-msg" role="status"></p>`;
-      $("a-out").onclick = signOut; return;
+      $("a-out").onclick = signOut;
+      const dl = $("a-dl"); if (dl) dl.onclick = downloadData;
+      const del = $("a-del"); if (del) del.onclick = deleteSaved;
+      const res = $("a-resume"); if (res) res.onclick = () => { window.Sync.resume(); render(); };
+      return;
     }
     if (view === "sent") {
       box.innerHTML = '<h1 style="font-size:34px">Check your email</h1><div class="card"><b>We sent you a link.</b><p class="note" style="margin:0">Open the email and tap the link. Then come back here and sign in. If you don’t see it, look in spam.</p><button class="btn" id="a-back">Go to sign in</button></div>';
@@ -171,9 +176,27 @@
     try { const { error } = await c.auth.updateUser({ password: pw }); if (error) throw error; recovery = false; setBusy(false); render(); msg("Password saved. You’re signed in.", "ok"); }
     catch (e) { setBusy(false); msg(nice(e), "err"); }
   }
+  // Download everything in a file, or remove the copy kept in the account.
+  function downloadData() {
+    if (!window.Sync) return;
+    const url = URL.createObjectURL(new Blob([window.Sync.exportData()], { type: "application/json" }));
+    const l = document.createElement("a"); l.href = url; l.download = "yanju-my-data.json"; document.body.appendChild(l); l.click(); l.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    msg("Downloaded. The file has your subscriptions and history.", "ok");
+  }
+  async function deleteSaved() {
+    if (!window.Sync || !confirm("Delete the copy of your subscriptions saved in your account? The subscriptions on this phone stay, but they will no longer be saved to your account until you turn saving back on.")) return;
+    setBusy(true); const r = await window.Sync.deleteCloud(); setBusy(false);
+    if (r.ok) { render(); msg("Your saved copy was deleted from your account.", "ok"); } else msg("We couldn’t delete it just now. Check your internet and try again.", "err");
+  }
+  addEventListener("yanju:syncstate", () => { const el = $("sync-status"); if (el && window.Sync) el.textContent = window.Sync.statusText(); });
+
   async function signOut() {
-    const c = client(); if (!c || busy) return; setBusy(true);
+    const c = client(); if (!c || busy) return;
+    setBusy(true);
+    if (window.Sync && window.Sync.beforeSignOut && !(await window.Sync.beforeSignOut())) { setBusy(false); return; }   // unsaved changes: the person chose to stay
     try { await c.auth.signOut(); } catch (e) { /* the local session is cleared either way */ }
+    if (window.Sync && window.Sync.afterSignOut) window.Sync.afterSignOut();   // nothing of this person stays on the phone
     session = null; setBusy(false); view = "form"; mode = "in"; renderNav(); render();
   }
 
@@ -196,10 +219,11 @@
     const c = client(); if (!c) { place(); render(); return; }
     c.auth.onAuthStateChange((event, s) => {
       session = s || null;
+      if (window.Sync && window.Sync.session) window.Sync.session(session);
       if (event === "PASSWORD_RECOVERY") { recovery = true; if (location.hash !== "#account") location.hash = "#account"; }
       renderNav(); setTimeout(() => { place(); render(); }, 0);
     });
-    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; renderNav(); place(); render(); }).catch(() => { render(); });
+    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; if (window.Sync && window.Sync.session) window.Sync.session(session); renderNav(); place(); render(); }).catch(() => { render(); });
   }
 
   window.Auth = { user, signOut, client };
