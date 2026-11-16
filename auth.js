@@ -100,6 +100,7 @@
         <label>Email<input type="email" id="a-email" autocomplete="email" inputmode="email" placeholder="you@example.com"></label>
         <label>Password${pwBox("a-pw", up ? "new-password" : "current-password", up ? "At least 8 characters" : "")}</label>
         <button type="button" class="btn" id="a-go">${up ? "Create account" : "Sign in"}</button>
+        ${up ? '<p class="note" style="margin:0">By creating an account you agree to our <a href="terms.html">Terms of Service</a> and <a href="privacy.html">Privacy Policy</a>.</p>' : ""}
         ${up ? "" : '<button type="button" class="linkbtn" id="a-forgot">Forgot your password?</button>'}
         <p class="amsg" id="a-msg" role="status"></p>
       </div>
