@@ -141,5 +141,5 @@
     window.addEventListener("online", () => { if (user()) schedule(500); });
   }
 
-  window.Sync = { changed, session, syncNow, statusText, beforeSignOut, afterSignOut, exportData, deleteCloud, resume, paused: () => meta().paused, _test: { merge, meta, canon, phase: () => phase } };
+  window.Sync = { changed, session, syncNow, statusText, beforeSignOut, afterSignOut, exportData, deleteCloud, resume, paused: () => meta().paused, dirty: () => !!meta().dirty, _test: { merge, meta, canon, phase: () => phase } };
 })();

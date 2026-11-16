@@ -1,6 +1,8 @@
 // Change the app name here. It updates everywhere on the site.
 window.APP_CONFIG = {
   name: "Yanju",
+  // Sign people out automatically after this many minutes away from the app. Use 0 to turn it off.
+  sessionTimeoutMinutes: 30,
   tagline: "Your heads up before every charge.",
   defaultCurrency: "NGN",
   // Sign-in and customer database (Supabase). Both values below are public and safe to keep here.

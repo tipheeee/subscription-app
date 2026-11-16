@@ -398,6 +398,26 @@
     }).join("");
   }
 
+  // ---------- Repeated subscriptions (e.g. the same screenshot scanned on two devices) ----------
+  const repKey = x => [Parser.dupKey(x), String(x.plan || "").trim().toLowerCase(), x.amount == null ? "" : +x.amount, String(x.currency || "").toUpperCase(), x.freq || ""].join("|");
+  function findRepeats(list) {
+    const g = {}; list.forEach(x => { if (x && x.name) (g[repKey(x)] = g[repKey(x)] || []).push(x); });
+    return Object.values(g).filter(a => a.length > 1);
+  }
+  function renderRepeats(real) {
+    const box = $("dup-box"); if (!box) return;
+    const groups = real.length ? findRepeats(real) : [];
+    const extra = groups.reduce((n, a) => n + a.length - 1, 0);
+    box.innerHTML = extra ? `<div class="cal-tip"><b>${extra} repeated subscription${extra > 1 ? "s" : ""} found</b><p>The same subscription is listed more than once (${esc(groups.map(a => a[0].name).join(", "))}). This usually happens when a screenshot is scanned on two devices.</p><button class="btn" id="dup-fix">Remove the repeats</button></div>` : "";
+  }
+  document.addEventListener("click", e => {
+    if (!e.target || e.target.id !== "dup-fix") return;
+    const list = Store.load(), drop = new Set();
+    findRepeats(list).forEach(a => { a.slice().sort((x, y) => (y.u || 0) - (x.u || 0)).slice(1).forEach(x => drop.add(x.id)); });
+    if (!drop.size || !confirm(`Remove ${drop.size} repeated subscription${drop.size > 1 ? "s" : ""}? The newest copy of each is kept.`)) return;
+    Store.save(list.filter(x => !drop.has(x.id))); renderAll();
+  });
+
   function renderAll() {
     const real = Store.load(), usingSample = !real.length, list = usingSample ? sample() : real;
     $("sample-badge").classList.toggle("hide", !usingSample);
@@ -405,6 +425,7 @@
     $("dash-list").innerHTML = rowsHtml(list, !usingSample);
     const due = usingSample ? [] : dueItems(real);
     $("due-box").innerHTML = (usingSample ? "" : noticeHtml()) + (due.length ? `<h2>Needs your answer</h2>` + dueHtml(due) : "");
+    renderRepeats(usingSample ? [] : real);
     const mx = Math.max(-1, ...prefs().days);
     const soon = usingSample ? [] : real.filter(s => s.status === "active" && s.date && daysTo(s.date) >= 0 && daysTo(s.date) <= mx).sort((a, b) => a.date.localeCompare(b.date));
     $("remind-box").innerHTML = soon.length ? `<h2>Charging soon</h2><div class="renewals">` + soon.map(s => { const n = daysTo(s.date); return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name)}<small>${n === 0 ? "charges today" : "charges in " + n + " day" + (n === 1 ? "" : "s")}</small></div><span class="amt">${s.amount != null && s.currency ? esc(money(s.amount, s.currency)) : ""}</span></div>`; }).join("") + `</div>` : "";
@@ -807,7 +828,7 @@
     PAGES.forEach(p => { const pg = $(p); if (pg) pg.classList.toggle("hide", p !== page); });
     if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
-    if (page === "scan") prewarmReader();
+    if (page === "scan") { prewarmReader(); if (window.Sync && window.Sync.syncNow) window.Sync.syncNow(); }
     renderAll(); window.scrollTo(0, 0);
     if (page === "alternatives") { let k = ""; try { k = decodeURIComponent(raw.slice(raw.indexOf("/") + 1)); } catch (e) { k = ""; } if (raw.includes("/") && k) showAlternatives(k); else location.hash = "#dashboard"; }
   }

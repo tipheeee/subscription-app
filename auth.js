@@ -200,6 +200,39 @@
     session = null; setBusy(false); view = "form"; mode = "in"; renderNav(); render();
   }
 
+  // ---------- Automatic sign-out after time away ----------
+  // The sign-in is kept on the phone, so without this, anyone who picks up the phone is already in.
+  // We note when the person last touched the app, and sign out if they were away longer than the limit.
+  const IDLE_KEY = "yanju.lastActive";
+  const idleMs = () => { const m = Number(cfg.sessionTimeoutMinutes); return (isNaN(m) ? 30 : m) * 60000; };
+  const lastActive = () => { try { return Number(localStorage.getItem(IDLE_KEY)) || 0; } catch (e) { return 0; } };
+  let lastMark = 0;
+  function markActive(force) {
+    const n = Date.now(); if (!force && n - lastMark < 15000) return;
+    lastMark = n; try { localStorage.setItem(IDLE_KEY, String(n)); } catch (e) { /* storage blocked */ }
+  }
+  let checking = false;
+  async function checkIdle() {
+    if (checking || busy || !user() || !client() || idleMs() <= 0) return;
+    if (/[?&]code=|access_token=/.test(location.search + location.hash)) return;   // just coming back from Google or an email link
+    const last = lastActive(); if (!last) { markActive(true); return; }
+    if (Date.now() - last < idleMs()) return;
+    checking = true;
+    try {
+      // Save first. If something still can't be saved, stay signed in so nothing is lost.
+      if (window.Sync && window.Sync.syncNow) await Promise.race([window.Sync.syncNow(), new Promise(r => setTimeout(r, 8000))]);
+      if (window.Sync && window.Sync.dirty && window.Sync.dirty()) return;
+      try { await client().auth.signOut(); } catch (e) { /* the local session is cleared either way */ }
+      if (window.Sync && window.Sync.afterSignOut) window.Sync.afterSignOut();
+      session = null; view = "form"; mode = "in"; recovery = false;
+      renderNav(); if (location.hash !== "#account") location.hash = "#account"; else render();
+      setTimeout(() => { render(); msg("You were signed out because you were away for a while. Sign in again to see your subscriptions.", "ok"); }, 50);
+    } finally { checking = false; }
+  }
+  ["pointerdown", "keydown", "touchstart", "scroll"].forEach(ev => addEventListener(ev, () => markActive(false), { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (document.hidden) markActive(true); else checkIdle(); });
+  setInterval(checkIdle, 60000);
+
   function init() {
     renderNav();
     const box = $("account");
@@ -223,7 +256,7 @@
       if (event === "PASSWORD_RECOVERY") { recovery = true; if (location.hash !== "#account") location.hash = "#account"; }
       renderNav(); setTimeout(() => { place(); render(); }, 0);
     });
-    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; if (window.Sync && window.Sync.session) window.Sync.session(session); renderNav(); place(); render(); }).catch(() => { render(); });
+    c.auth.getSession().then(r => { session = (r && r.data && r.data.session) || null; checkIdle(); if (window.Sync && window.Sync.session) window.Sync.session(session); renderNav(); place(); render(); }).catch(() => { render(); });
   }
 
   window.Auth = { user, signOut, client };
