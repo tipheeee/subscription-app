@@ -68,8 +68,8 @@
     const id = esc(notice.id);
     if (notice.kind === "renewed") return `<div class="due"><b>${esc(notice.text)}</b> Update your calendar so its alert matches this date.
       <div class="acts"><button class="btn" data-act="calics" data-id="${id}">Add to calendar</button><button class="btn ghost" data-act="dismiss" data-id="${id}">Not now</button></div></div>`;
-    return `<div class="due">${esc(notice.text)} If you added it to your calendar, delete that event there.
-      <div class="acts"><button class="btn ghost" data-act="dismiss" data-id="${id}">OK</button></div></div>`;
+    return `<div class="due"><b>${esc(notice.text)}</b> Do you want to remove it from your list, or keep it there as cancelled? Your history is kept either way.${notice.cal ? " If you added it to your calendar, delete that event there." : ""}
+      <div class="acts"><button class="btn" data-act="remove" data-id="${id}">Remove from my list</button><button class="btn ghost" data-act="dismiss" data-id="${id}">Keep it as cancelled</button></div></div>`;
   }
   function dueItems(list) {
     const t = isoIn(0);
@@ -83,7 +83,10 @@
       const later = `<button class="btn ghost" data-act="snooze" data-id="${id}">Ask me tomorrow</button>`;
       if (ended) return `<div class="due"><b>${esc(s.name)}</b> was set to end ${ago} (${esc(fmtDate(when))}). Has it ended?
         <div class="acts"><button class="btn" data-act="ended" data-id="${id}">Yes, it ended</button><button class="btn ghost" data-act="keep" data-id="${id}">No, it continues</button>${later}</div></div>`;
-      const needDate = !PER[s.freq] ? `<label class="note">Billing period unknown. Pick the next charge date:<br><input type="date" data-nd="${id}"></label>` : "";
+      const needDate = !PER[s.freq] ? `<div class="note" style="display:grid;gap:8px;margin:10px 0">We don’t know how often this is billed.
+        <label>How often is it billed?<select data-nf="${id}"><option value="">Choose…</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select></label>
+        <label>Or pick the next charge date<input type="date" data-nd="${id}"></label>
+        <span data-nm="${id}" style="color:var(--coral);font-weight:500" role="alert"></span></div>` : "";
       return `<div class="due"><b>${esc(s.name)}</b> was due ${ago} (${esc(fmtDate(when))}). Did it renew, or did you cancel it?${needDate}
         <div class="acts"><button class="btn" data-act="renewed" data-id="${id}">It renewed</button><button class="btn ghost" data-act="cancelled" data-id="${id}">I cancelled it</button>${later}</div></div>`;
     }).join("");
@@ -95,15 +98,17 @@
     if (act === "renewed") {
       // Every charge date that has passed counts as paid, and is written to History.
       const paid = [];
-      if (PER[s.freq] && s.date) {
-        let n = 0, d = s.date;
-        while (d <= isoIn(0) && n < 24) { paid.push(d); n++; d = addPeriods(s.date, s.freq, n); }
-        s.date = nextCharge(s);
-      } else {
-        const inp = document.querySelector(`[data-nd="${CSS.escape(id)}"]`);
-        if (!inp || !inp.value) { alert("Pick the next charge date first."); return; }
-        if (s.date) paid.push(s.date);
-        s.date = inp.value;
+      const rollForward = () => { let n = 0, d = s.date; while (d <= isoIn(0) && n < 24) { paid.push(d); n++; d = addPeriods(s.date, s.freq, n); } s.date = nextCharge(s); };
+      if (PER[s.freq] && s.date) rollForward();
+      else {
+        const sel = document.querySelector(`[data-nf="${CSS.escape(id)}"]`), inp = document.querySelector(`[data-nd="${CSS.escape(id)}"]`), say = document.querySelector(`[data-nm="${CSS.escape(id)}"]`);
+        const freq = sel ? sel.value : "", picked = inp ? inp.value : "";
+        const warn = t => { if (say) say.textContent = t; else alert(t); };
+        if (picked && picked > isoIn(0)) {
+          if (s.date) paid.push(s.date);
+          s.date = picked; if (freq) s.freq = freq;
+        } else if (freq && s.date) { s.freq = freq; rollForward(); }
+        else { warn(picked ? "Pick a date after today." : "Choose how often it is billed, or pick the next charge date."); return; }
       }
       delete s.snooze;
       Store.logEvents(paid.map(d => evt(s, "renewed", d)));
@@ -111,8 +116,9 @@
     else if (act === "ended") { s.status = "expired"; delete s.snooze; Store.logEvents([evt(s, "ended", s.expiry && s.expiry <= isoIn(0) ? s.expiry : isoIn(0))]); }
     else if (act === "keep") { s.expiry = ""; delete s.snooze; }
     else if (act === "snooze") s.snooze = isoIn(1);
-    if ((act === "renewed" || act === "cancelled") && prefs().calAsk !== false)
-      notice = { id: s.id, kind: act, text: act === "renewed" ? `Next charge for ${s.name}: ${fmtDate(s.date)}.` : `${s.name} is marked cancelled.` };
+    if (act === "cancelled") notice = { id: s.id, kind: "cancelled", cal: prefs().calAsk !== false, text: `${s.name} is marked cancelled.` };
+    else if (act === "renewed" && prefs().calAsk !== false) notice = { id: s.id, kind: "renewed", text: `Next charge for ${s.name}: ${fmtDate(s.date)}.` };
+    else if (act === "remove") { list.splice(list.indexOf(s), 1); notice = null; }
     else if (act === "calics") { downloadIcs(buildIcs(s.id), "subscription.ics"); notice = null; }
     else if (act === "dismiss") notice = null;
     Store.save(list); renderAll();
