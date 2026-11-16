@@ -1,6 +1,24 @@
-// Lets the app show notifications on phones. It does nothing else.
+// Shows notifications on phones, and keeps the big text-reader files (Tesseract) on the device
+// so scanning is fast after the first time. The app's own files are never cached here, so updates show straight away.
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
+const LIB = "yanju-libs-v1";
+self.addEventListener("activate", e => e.waitUntil(Promise.all([
+  self.clients.claim(),
+  caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith("yanju-libs-") && k !== LIB).map(k => caches.delete(k))))
+])));
+self.addEventListener("fetch", e => {
+  const r = e.request;
+  if (r.method !== "GET") return;
+  const u = new URL(r.url);
+  // Only version-pinned library files and fonts from the CDNs. Everything else goes straight to the network.
+  if (!(u.hostname === "cdn.jsdelivr.net" || u.hostname === "fonts.gstatic.com")) return;
+  e.respondWith(caches.open(LIB).then(async c => {
+    const hit = await c.match(r); if (hit) return hit;
+    const res = await fetch(r);
+    if (res && (res.ok || res.type === "opaque")) c.put(r, res.clone()).catch(() => {});
+    return res;
+  }));
+});
 self.addEventListener("notificationclick", e => {
   e.notification.close();
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {

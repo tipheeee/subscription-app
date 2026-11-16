@@ -472,15 +472,44 @@
     try { return await Tesseract.createWorker("eng", 1, { logger, langPath: LANG_BEST }); }
     catch (e) { console.warn("best language file failed, using the default", e); return await Tesseract.createWorker("eng", 1, { logger }); }
   }
+  // Phones and tablets (touch screens) and low-core devices get a lighter, faster reading pass.
+  const LITE = (window.matchMedia && matchMedia("(pointer:coarse)").matches) || (navigator.hardwareConcurrency || 8) <= 4;
+  // The text reader (about 3 MB in total) is only downloaded when someone actually scans, not on every page load.
+  let tessP = null;
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve();
+    if (!tessP) tessP = new Promise((ok, fail) => {
+      const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"; s.onload = ok;
+      s.onerror = () => { tessP = null; fail(new Error("could not load the text reader")); }; document.head.appendChild(s);
+    });
+    return tessP;
+  }
+  // One reader is kept warm and reused, so a second scan doesn't start from zero. It is closed after 2 idle minutes to free memory.
+  let workerP = null, idleT = null, onProg = null;
+  function getWorker() {
+    clearTimeout(idleT);
+    if (!workerP) workerP = (async () => { await loadTesseract(); return makeWorker(m => { if (onProg) onProg(m); }); })().catch(e => { workerP = null; throw e; });
+    return workerP;
+  }
+  function dropWorker() { const w = workerP; workerP = null; clearTimeout(idleT); if (w) w.then(x => x.terminate()).catch(() => {}); }
+  function idleWorker() { clearTimeout(idleT); idleT = setTimeout(dropWorker, 120000); }
+  // Start downloading the reader as soon as the Scan page opens, while the person is still choosing a screenshot.
+  function prewarmReader() {
+    const c = navigator.connection; if (!navigator.onLine || (c && c.saveData)) return;
+    getWorker().then(idleWorker).catch(() => {});
+  }
+  const pause = ms => new Promise(r => setTimeout(r, ms));
   // Enlarge small screenshots (text needs to be tall enough to read), cap huge ones, return raw pixels.
   async function loadPixels(blob) {
     const bmp = await createImageBitmap(blob);
-    let k = bmp.width < 1400 ? Math.min(3, 1400 / bmp.width) : 1;
-    k = Math.min(k, Math.sqrt(8e6 / (bmp.width * bmp.height)));
+    const WANT = LITE ? 1080 : 1400, MAXPX = LITE ? 3e6 : 8e6;
+    let k = bmp.width < WANT ? Math.min(LITE ? 1.5 : 3, WANT / bmp.width) : 1;
+    k = Math.min(k, Math.sqrt(MAXPX / (bmp.width * bmp.height)));
     const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     const ctx = c.getContext("2d", { willReadFrequently: true });
     ctx.imageSmoothingQuality = "high"; ctx.drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
     return ctx.getImageData(0, 0, w, h);
   }
   function pixelsToBlob(r) {
@@ -517,27 +546,29 @@
     }
     ev.target.value = "";
     let raw = "";
-    if (!window.Tesseract) { setMsg("The text reader didn’t load. Check your internet connection and try again.", true); return; }
-    try { await loadScript("preprocess.js"); }
-    catch (err) { setMsg("A reading helper file didn’t load (preprocess.js). Check that it is in your repo, then reload the page.", true); return; }
     const texts = [], repairs = [];
     let label = "";
+    setMsg("Starting the text reader… (the first time can take a minute)");
     let worker;
     try {
-      worker = await makeWorker(m => { if (m.status === "recognizing text") setMsg(`${label} ${Math.round(m.progress * 100)}%`); });
+      await Promise.all([loadTesseract(), loadScript("preprocess.js")]);
+      onProg = m => { if (m.status === "recognizing text") setMsg(`${label} ${Math.round(m.progress * 100)}%`); };
+      worker = await getWorker();
     } catch (err) {
       console.error(err);
-      setMsg(`The text reader failed to start: ${errText(err)}. Check your internet connection and try again.`, true);
+      setMsg(`The text reader didn’t load: ${errText(err)}. Check your internet connection and try again.`, true);
       return;
     }
     try {
       for (let i = 0; i < imgs.length; i++) {
-        label = `Reading image ${i + 1} of ${imgs.length}… (the first time can take a minute)`;
-        setMsg(label);
+        label = `Reading image ${i + 1} of ${imgs.length}…`;
+        setMsg(label); await pause(30);
         const px = await loadPixels(imgs[i].blob);
-        let best = null;
-        // Try the clean-up modes in turn. Stop as soon as every subscription found has a price.
+        let best = null; const t0 = performance.now();
+        // Try the clean-up modes in turn. Stop as soon as every subscription found has a price,
+        // or (on a phone) once a usable answer exists and the time budget is used up.
         for (const [variant, psm] of PLAN) {
+          label = `Reading image ${i + 1} of ${imgs.length}…`; await pause(30);
           const cleaned = await pixelsToBlob(Preprocess.run(px, variant));
           await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" });
           const res = await worker.recognize(cleaned);
@@ -546,14 +577,15 @@
           const score = ents.filter(x => x.amount != null).length * 2 + ents.length;
           if (!best || score > best.score) best = { text: c.text, repairs: c.repairs, score };
           if (ents.length && ents.every(x => x.amount != null)) break;
+          if (best.score > 0 && performance.now() - t0 > (LITE ? 15000 : 40000)) break;
         }
         texts.push(best.text); repairs.push(...best.repairs);
       }
     } catch (err) {
-      console.error(err);
+      console.error(err); dropWorker();
       setMsg(`The text reader failed: ${errText(err)}. Check your internet connection and try again.`, true);
       return;
-    } finally { try { await worker.terminate(); } catch (e) {} }
+    } finally { onProg = null; idleWorker(); }
     raw = texts.join("\n\n").trim();
     try {
       texts.forEach(t => { draft = draft.concat(Parser.parse(t)); });
@@ -775,7 +807,7 @@
     PAGES.forEach(p => { const pg = $(p); if (pg) pg.classList.toggle("hide", p !== page); });
     if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
-    if (page !== "scan") { /* images are never stored: nothing to clean up */ }
+    if (page === "scan") prewarmReader();
     renderAll(); window.scrollTo(0, 0);
     if (page === "alternatives") { let k = ""; try { k = decodeURIComponent(raw.slice(raw.indexOf("/") + 1)); } catch (e) { k = ""; } if (raw.includes("/") && k) showAlternatives(k); else location.hash = "#dashboard"; }
   }
