@@ -93,6 +93,7 @@
     if (B.top.length) html += `<div class="rp-card"><h3>Biggest costs per month</h3>${B.top.map(r => barRow(r.name, r.monthly, maxTop, m(r.monthly))).join("")}</div>`;
     html += `<div class="rp-two">${donut(share, "Business share of spending")}${donut(withClient, "Tools with a client")}</div>`;
     html += `<div class="rp-card"><h3>Cost by client or project, per month</h3>${d.C.rows.length ? d.C.rows.map(r => barRow(r.label, r.monthly, maxC, m(r.monthly))).join("") : ""}${d.names.length ? "" : `<p class="note" style="margin:0">Add a client or project name when you edit a Business subscription, and the cost for each will show here.</p>`}</div>`;
+    if (h.sample) { S.client = "all"; S.year = null; box.innerHTML = `<div class="card lock no-print"><b>Example report</b><p class="note" style="margin:0">This uses made-up subscriptions so you can see the layout. Your own report is made from your own information.</p></div>` + html.split('<div class="rp-actions')[0] + h.sampleCta; return; }
     html += `<div class="rp-actions no-print"><button class="btn" id="rp-pdf" type="button">Download PDF</button><button class="btn ghost" id="rp-csv" type="button">Download spreadsheet</button></div>
       <p class="note rp-pdfhint no-print" id="rp-msg"></p>
       <p class="note">These are estimates from the prices saved in Yanju, shown in ${h.esc(T)} at about today’s exchange rates. Yanju doesn’t give tax advice. Ask your accountant what you can claim.</p>`;

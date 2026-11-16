@@ -187,6 +187,7 @@
     if (amount != null && !(amount >= 0)) return err("The amount must be a number.");
     let currency = v.currency.trim().toUpperCase();
     if (amount != null && !currency) currency = cfg.defaultCurrency;
+    if (v.status === "active" && s.status !== "active" && !Plans.canAdd(list)) return err(`Free plans can track ${Plans.limit()} active subscriptions. Cancel or remove one first, or upgrade to Premium (${Plans.priceText()}).`);
     const oldDate = s.date, oldStatus = s.status;
     Object.assign(s, { name: v.name.trim(), plan: v.plan.trim(), amount, currency, freq: v.freq, date: v.date, expiry: v.expiry, status: v.status, use: v.use || "", client: v.use === "business" ? String(v.client || "").replace(/\s+/g, " ").trim().slice(0, 60) : "", cat: v.cat || Insights.catOf(s) });
     if (s.date !== oldDate || s.status !== oldStatus) delete s.snooze;
@@ -393,7 +394,7 @@
       const price = s.amount != null && s.currency ? money(s.amount, s.currency) : "No price";
       const sub = [s.plan, s.freq, s.use === "business" ? "Business" : s.use === "personal" ? "Personal" : "", s.expiry ? "ends " + fmtDate(s.expiry) : ""].filter(Boolean).map(esc).join(" · ");
       const altKey = s.id ? s.id : "n:" + (s.name || "");
-      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small><a class="altlink" href="#alternatives/${encodeURIComponent(altKey)}">Explore alternatives</a></div>
+      return `<div class="row">${logoHtml(s.name)}<div class="n">${esc(s.name || "Unnamed")}<small>${sub || "Plan not set"}</small><a class="altlink" href="#alternatives/${encodeURIComponent(altKey)}">${Plans.can("alternatives") ? "" : "🔒 "}Explore alternatives</a></div>
         <span class="amt">${price}</span>${chip}${real ? `<button class="x" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}">✎</button><button class="x" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}">✕</button>` : ""}</div>`;
     }).join("");
   }
@@ -458,6 +459,8 @@
     $("fx-note").textContent = fxNote;
     scheduleSync(); renderInsights(); try { renderReport(); } catch (e) { /* the report must never stop the dashboard */ } renderHistory();
     if ($("cal-tip")) $("cal-tip").hidden = usingSample || !real.some(s => s.status === "active" && s.date);
+    const planNote = usingSample ? "" : Plans.usageText(real);
+    $("plan-note").textContent = planNote; if ($("scan-plan")) $("scan-plan").textContent = planNote;
     $("unpriced").textContent = unpriced ? `${unpriced} subscription${unpriced > 1 ? "s are" : " is"} not counted yet: price, currency or billing period is missing.` : "";
   }
 
@@ -663,6 +666,8 @@
       if (!e.dup && existing.concat(toSave).some(x => Parser.isDup(x, e))) return;
       toSave.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())), name: e.name.trim(), plan: e.plan, amount: e.amount, currency: e.currency, freq: e.freq, date: e.date, expiry: e.expiry, status: e.status, use: e.use || "", cat: e.cat || Insights.suggestCategory(e.name), addedAt: new Date().toISOString() });
     });
+    const newActive = toSave.filter(s => s.status === "active").length;
+    if (newActive && !Plans.canAdd(existing, newActive)) { setMsg(Plans.limitMessage(existing, newActive), true); return; }
     if (!Store.save(existing.concat(toSave))) { setMsg("Couldn’t save on this device. Check that browser storage is allowed.", true); return; }
     Store.logEvents(toSave.map(s => evt(s, "added", isoIn(0))));
     draft = []; $("review-wrap").classList.add("hide"); setMsg("");
@@ -756,13 +761,17 @@
 
   function renderHistory() {
     const box = $("hist-body"); if (!box) return;
-    const ev = Store.history().slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.at || "").localeCompare(String(a.at || "")));
+    const allEv = Store.history(), cutoff = Plans.historyCutoff(isoIn(0));
+    const inWindow = e => !cutoff || !e.date || e.date >= cutoff;
+    const ev = allEv.filter(inWindow).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.at || "").localeCompare(String(a.at || "")));
+    const hidden = allEv.length - ev.length;
+    if ($("hist-lock")) $("hist-lock").textContent = hidden ? `🔒 ${hidden} older record${hidden > 1 ? "s are" : " is"} kept safe but hidden. Free plans show the last ${window.APP_CONFIG.plans.freeHistoryDays} days. Premium (${Plans.priceText()}) shows everything.` : "";
     if (!ev.length) {
       box.innerHTML = `<div class="card empty"><b>No history yet.</b><span class="note">When a subscription is due and you tap “It renewed”, the charge is recorded here. Saving, cancelling and ending subscriptions are recorded too.</span></div>`;
       return;
     }
     const target = totalCur(), today = isoIn(0), yearStart = today.slice(0, 4) + "-01-01", yearAgo = addPeriods(today, "yearly", -1);
-    const paid = ev.filter(e => e.type === "renewed" && e.amount != null && e.currency && e.date <= today);
+    const paid = allEv.filter(e => e.type === "renewed" && e.amount != null && e.currency && e.date <= today);
     if (paid.some(e => e.currency !== target) && !(fx && fx.rates)) refreshFx();
     let thisYear = 0, last12 = 0, bizYear = 0, skipped = 0; const byMonth = {};
     paid.forEach(e => {
@@ -796,11 +805,12 @@
     $("exp-msg").textContent = "Downloaded. Open it in Excel, Google Sheets or Numbers.";
   });
   $("exp-hist").addEventListener("click", () => {
-    const ev = Store.history().slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    const cutoff = Plans.historyCutoff(isoIn(0));
+    const ev = Store.history().filter(e => !cutoff || !e.date || e.date >= cutoff).sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
     if (!ev.length) { $("exp-msg").textContent = "No history to export yet."; return; }
     const rows = ev.map(e => [e.date, e.name, EVT_LABEL[e.type] || e.type, e.type === "renewed" ? e.amount : "", e.type === "renewed" ? e.currency : "", e.freq, useLabel(e.use), Insights.catLabel(e.cat), e.at]);
     downloadFile(Insights.toCsv(["Date", "Service", "Event", "Amount", "Currency", "Billed", "Used for", "Category", "Recorded at"], rows), `${cfg.name.toLowerCase()}-history-${stamp()}.csv`, "text/csv");
-    $("exp-msg").textContent = "Downloaded. Open it in Excel, Google Sheets or Numbers.";
+    $("exp-msg").textContent = "Downloaded. Open it in Excel, Google Sheets or Numbers." + (cutoff ? ` It has the last ${window.APP_CONFIG.plans.freeHistoryDays} days. Premium includes older records.` : "");
   });
   $("hist-clear").addEventListener("click", () => {
     if (!confirm("Delete your payment history from this device? Your subscriptions stay. This can’t be undone.")) return;
@@ -808,14 +818,27 @@
   });
 
   // ---------- Pages ----------
-  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report", "account"];
+  const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report", "account", "pricing"];
   function renderReport() {
     const box = $("rep-body"), page = $("report"); if (!box || !page || !window.Report || !Insights.byClient || page.classList.contains("hide")) return;
+    const repLabel = $("rep-cur") && $("rep-cur").parentNode;
+    if (repLabel) repLabel.classList.toggle("hide", !Plans.can("report"));
+    if (!Plans.can("report")) {
+      // Free and Premium people see an example made of invented data. Their own report is made after payment.
+      const p = window.APP_CONFIG.plans, today = isoIn(0), yr = today.slice(0, 4);
+      const subs = [["Canva", "design", 36000, "yearly", "Ade Bakery"], ["Google Workspace", "productivity", 7200, "monthly", "Ade Bakery"], ["Zoom", "productivity", 14000, "monthly", "Lola Studio"], ["Adobe Creative Cloud", "design", 28000, "monthly", "Lola Studio"], ["Notion", "productivity", 4800, "monthly", ""]]
+        .map(([name, cat, amount, freq, client], i) => ({ id: "ex" + i, name, cat, amount, currency: "NGN", freq, date: isoIn(3 + i * 5), status: "active", use: "business", client }));
+      const hist = []; subs.forEach((s, i) => { for (let m = 1; m <= 4; m++) hist.push({ id: "eh" + i + m, subId: s.id, name: s.name, type: "renewed", date: addPeriods(today, "monthly", -m), amount: s.amount, currency: "NGN", freq: s.freq, use: "business", client: s.client, cat: s.cat, at: today }); });
+      const cta = `<div class="card lock no-print"><b>Want this with your own information?</b><p style="margin:0">Your own report is made from your own subscriptions and downloaded to your device after payment. Nothing here is yours.</p><p class="note" style="margin:0">${Plans.money(p.reportPackNGN)} for ${p.reportPackSize} reports, or unlimited on the Business plan (${Plans.money(p.businessPriceNGN)} a month). Payments are opening soon.</p><div><a class="btn" href="#pricing">See plans</a></div></div>`;
+      window.Report.render({ el: box, Store: { load: () => subs, history: () => hist }, Insights, esc, money, fmtDate, convert, target: "NGN", cfg, today, addPeriods, fxReady: () => true, refreshFx() {}, download() {}, stamp, sample: true, sampleCta: cta });
+      return;
+    }
     const target = totalCur(), codes = Array.from(new Set(Store.load().filter(s => s.status === "active" && s.currency).map(s => s.currency)));
     fillCurSelect(target, codes, "rep-cur");
     window.Report.render({ el: box, Store, Insights, esc, money, fmtDate, convert, target, cfg, today: isoIn(0), addPeriods, fxReady: () => !!(fx && fx.rates), refreshFx, download: downloadFile, stamp });
   }
   function showAlternatives(key) {
+    if (!Plans.can("alternatives")) { $("alternatives").innerHTML = `<h1 style="font-size:32px;margin:0 0 14px">Explore alternatives</h1>` + Plans.lockCard("alternatives", esc); return; }
     const real = Store.load().find(x => x.id === key);
     const name = real ? real.name : key.replace(/^n:/, "");
     const s = real || sample().find(x => x.name === name) || { name };

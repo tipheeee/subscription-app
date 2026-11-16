@@ -5,6 +5,8 @@ window.APP_CONFIG = {
   sessionTimeoutMinutes: 30,
   tagline: "Your heads up before every charge.",
   defaultCurrency: "NGN",
+  // Free and Premium limits (see plans.js).
+  plans: { freeSubscriptions: 3, freeHistoryDays: 60, premiumPriceNGN: 1000, businessPriceNGN: 3000, reportPackNGN: 1500, reportPackSize: 3, whatsappCap: { premium: 30, business: 100 }, trialDays: 7 },
   // Sign-in and customer database (Supabase). Both values below are public and safe to keep here.
   supabaseUrl: "https://utiumcvozfohydmqalwo.supabase.co",
   supabaseKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aXVtY3ZvemZvaHlkbXFhbHdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ1OTk5MTMsImV4cCI6MjExMDE3NTkxM30.emzJF93JqB6ZeV6WNW2QsvYvjh25XWfi3A9jI3yknMk",
