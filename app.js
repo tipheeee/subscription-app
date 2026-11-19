@@ -10,6 +10,8 @@
   // Services with no bundled logo: fetch their website icon instead (falls back to a letter).
   const SITES = { "boomplay": "boomplay.com", "google one": "one.google.com", "dstv": "dstv.com", "gotv": "gotvafrica.com", "showmax": "showmax.com", "deezer": "deezer.com", "hulu": "hulu.com", "disney": "disneyplus.com", "disney hotstar": "hotstar.com", "hotstar": "hotstar.com", "microsoft 365": "microsoft.com", "office 365": "microsoft.com", "onedrive": "onedrive.live.com", "masterclass": "masterclass.com", "xbox": "xbox.com", "midjourney": "midjourney.com", "startimes": "startimestv.com", "kiosk": "kiosk.ng", "capcut": "capcut.com", "picsart": "picsart.com", "remini": "remini.ai", "truecaller": "truecaller.com", "capcut": "capcut.com", "inshot": "inshot.com", "picsart": "picsart.com", "tiktok": "tiktok.com", "snapchat": "snapchat.com", "truecaller": "truecaller.com", "vsco": "vsco.co", "lightroom": "adobe.com", "bolt": "bolt.eu", "uber": "uber.com" };
   function logoHtml(name) {
+    // Yanju's own entry ("Yanju Premium", "Yanju Business"...) uses the Yanju icon.
+    if (/^yanju\b/i.test(String(name || "").trim())) return `<span class="logo" aria-hidden="true" style="overflow:hidden;padding:0"><img alt="" src="icon-192.png" width="40" height="40" style="width:100%;height:100%;object-fit:cover;display:block"></span>`;
     const n = " " + String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\b0ne\b/g, "one").trim() + " ";
     const aliases = window.LOGO_ALIASES || {}, logos = window.LOGOS || {};
     let best = null;
