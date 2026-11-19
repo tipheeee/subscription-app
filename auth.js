@@ -154,7 +154,7 @@
     if (pw.length < 8) return msg("Your password needs at least 8 characters.", "err");
     setBusy(true); msg("Creating your account…");
     try {
-      const { data, error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: back(), data: { first_name: first, last_name: last, full_name: first + " " + last } } });
+      const { data, error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: back(), data: { first_name: first, last_name: last, full_name: first + " " + last, ref: (() => { try { const c = localStorage.getItem("yanju.ref"); return /^[A-HJKMNP-Z2-9]{8}$/.test(c || "") ? c : undefined; } catch (e) { return undefined; } })() } } });
       if (error) throw error;
       setBusy(false);
       if (data && data.user && data.user.identities && data.user.identities.length === 0) return msg("That email already has an account. Try signing in instead.", "err");

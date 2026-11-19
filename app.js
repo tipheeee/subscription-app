@@ -869,17 +869,51 @@
   }
   addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
-  // After a payment, Yanju adds itself to the person's list so they are reminded before the plan ends (plans never renew by themselves).
-  addEventListener("yanju:paid", e => {
-    const d = e.detail || {};
-    if (d.kind !== "plan" || !d.plan_until || !(d.amount > 0)) return;
-    const end = new Date(d.plan_until); if (isNaN(end)) return;
+  // Yanju adds itself to the person's list after they pay, so they are reminded before the plan ends (plans never renew by themselves).
+  function ensureSelf(d) {
+    const trial = d && d.kind === "trial";
+    if (!d || (d.kind !== "plan" && !trial) || !d.plan_until || (!trial && !(d.amount > 0))) return false;
+    const end = new Date(d.plan_until); if (isNaN(end)) return false;
     const date = end.getFullYear() + "-" + String(end.getMonth() + 1).padStart(2, "0") + "-" + String(end.getDate()).padStart(2, "0");
     const biz = d.plan === "business", list = Store.load(), i = list.findIndex(s => s.id === Plans.SELF_ID);
-    const row = { id: Plans.SELF_ID, name: biz ? "Yanju Business" : "Yanju Premium", plan: d.months === 1 ? "1 month" : d.months + " months", amount: d.amount, currency: "NGN", freq: d.months === 12 ? "yearly" : d.months === 3 ? "quarterly" : "monthly", date, expiry: "", status: "active", use: biz ? "business" : "personal", cat: "work", addedAt: i >= 0 ? list[i].addedAt : new Date().toISOString() };
+    const row = trial
+      ? { id: Plans.SELF_ID, name: "Yanju Premium (free trial)", plan: "Free trial", amount: 0, currency: "NGN", freq: "monthly", date, expiry: "", status: "active", use: "personal", cat: "work", addedAt: i >= 0 ? list[i].addedAt : new Date().toISOString() }
+      : { id: Plans.SELF_ID, name: biz ? "Yanju Business" : "Yanju Premium", plan: d.months === 1 ? "1 month" : d.months + " months", amount: d.amount, currency: "NGN", freq: d.months === 12 ? "yearly" : d.months === 3 ? "quarterly" : "monthly", date, expiry: "", status: "active", use: biz ? "business" : "personal", cat: "work", addedAt: i >= 0 ? list[i].addedAt : new Date().toISOString() };
+    if (i >= 0 && list[i].date === date && list[i].amount === row.amount && list[i].freq === row.freq && list[i].name === row.name && list[i].status === "active") return true;   // already up to date
     if (i >= 0) list[i] = Object.assign({}, list[i], row); else list.push(row);
-    if (Store.save(list)) { Store.logEvents([evt(row, i >= 0 ? "renewed" : "added", isoIn(0))]); renderAll(); }
+    if (!Store.save(list)) return false;
+    Store.logEvents([evt(row, i >= 0 ? "renewed" : "added", isoIn(0))]); renderAll(); return true;
+  }
+  addEventListener("yanju:paid", e => {
+    const d = e.detail || {};
+    if (ensureSelf(d) && window.Auth && Auth.user && Auth.user() && d.plan_until) { try { localStorage.setItem("yanju.self.seen." + Auth.user().id, d.plan_until); } catch (err) { /* ignore */ } }
   });
+  // Catch-up: whenever the plan's end date is one we haven't handled on this phone, look up their latest payment and add or update the entry.
+  // This covers payments made before this feature existed, and payments made on another phone. A deleted entry stays deleted until they pay again.
+  let selfBusy = false;
+  // When the plan has ended and wasn't renewed, mark the Yanju entry as ended instead of asking "did it renew?".
+  function expireSelf() {
+    const list = Store.load(), i = list.findIndex(s => s.id === Plans.SELF_ID);
+    if (i < 0 || list[i].status !== "active" || list[i].date > isoIn(0)) return;
+    list[i] = Object.assign({}, list[i], { status: "expired" });
+    if (Store.save(list)) { Store.logEvents([evt(list[i], "ended", isoIn(0))]); renderAll(); }
+  }
+  async function syncSelf() {
+    if (selfBusy || !window.Plans || !Plans.signedIn()) return;
+    if (!Plans.isPremium()) { expireSelf(); return; }
+    const u = window.Auth.user(), until = Plans.until(), key = "yanju.self.seen." + u.id;
+    if (!until) return;
+    try { if (localStorage.getItem(key) === until) return; } catch (e) { /* storage blocked: just try */ }
+    selfBusy = true;
+    const r = await Plans.api("/api/pay/last");
+    selfBusy = false;
+    if (!r.ok) return;   // couldn't reach the server: try again next time
+    if (r.data.last) ensureSelf({ kind: "plan", plan: r.data.plan, months: r.data.last.months, amount: r.data.last.amount, plan_until: r.data.plan_until || until });
+    else if (r.data.trial) ensureSelf({ kind: "trial", plan_until: r.data.plan_until || until });
+    try { localStorage.setItem(key, until); } catch (e) { /* ignore */ }
+  }
+  let selfTries = 0; const selfPoll = setInterval(() => { syncSelf(); if (++selfTries > 25) clearInterval(selfPoll); }, 1500);
+  addEventListener("yanju:synced", syncSelf);
   addEventListener("yanju:synced", () => { renderAll(); });   // subscriptions arrived from, or were cleared for, the account
   setInterval(() => checkReminders(), 30 * 60 * 1000);
 })();

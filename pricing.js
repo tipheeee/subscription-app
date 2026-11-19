@@ -32,6 +32,7 @@
     box.innerHTML = `<h1 style="font-size:34px">Plans</h1>
       <p class="lead" style="font-size:16px">Start free. Pay only when you need more. Plans are prepaid and never renew by themselves, so you will not be charged again unless you choose to.</p>
       ${banner ? `<div class="card lock" role="status"><b>${esc(banner.title)}</b>${banner.text ? `<p style="margin:0">${esc(banner.text)}</p>` : ""}</div>` : ""}
+      <div id="ref-card"></div>
       ${cur !== "free" ? `<p class="note"><b>You are on ${cur === "business" ? "Business" : "Premium"}${until ? ` until ${esc(fmtDay(until))}` : ""}.</b> Buying again adds time to the end.</p>` : ""}
       <div class="plans">
         <div class="card plan">
@@ -65,6 +66,7 @@
       </div>
       <p class="note">Payments are taken by Paystack, so you can pay by card, bank transfer or USSD. We never see your card details. See the <a href="terms.html">Terms</a> for refunds.</p>
       <p><a class="btn ghost" href="#dashboard">Back to dashboard</a></p>`;
+    if (window.Referral) window.Referral.mount();
   }
 
   const say = (which, text, kind) => { const m = document.querySelector(`[data-msg="${which}"]`); if (m) { m.textContent = text; m.className = "amsg" + (kind ? " " + kind : ""); } };

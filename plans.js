@@ -40,7 +40,9 @@
   // The "Yanju Premium/Business" entry the app adds after a payment never uses up a free slot.
   const SELF_ID = "yanju-self";
   const activeCount = list => (list || []).filter(s => s && s.status === "active" && s.id !== SELF_ID).length;
-  const limit = () => isPremium() ? Infinity : FREE_SUBS();
+  // Extra free slots earned by inviting friends. The server writes this into the account; the browser cannot change it.
+  const bonusSlots = () => Math.min(10, Math.max(0, Number(meta().bonus_slots) || 0));
+  const limit = () => isPremium() ? Infinity : FREE_SUBS() + bonusSlots();
   const room = list => Math.max(0, limit() - activeCount(list));
   // Someone who already has more than the limit (for example from before plans existed) keeps all of them; they just can't add more.
   const canAdd = (list, n) => room(list) >= (n == null ? 1 : n);
@@ -58,12 +60,12 @@
   const money = n => naira(n);
   function usageText(list) {
     if (isPremium()) return "";
-    const used = activeCount(list), max = FREE_SUBS();
+    const used = activeCount(list), max = limit();
     return used >= max ? `You are using all ${max} free subscriptions.` : `You are using ${used} of ${max} free subscriptions.`;
   }
   function limitMessage(list, wanted) {
     const r = room(list);
-    return `Free plans can track ${FREE_SUBS()} active subscriptions. You have ${r} free ${r === 1 ? "slot" : "slots"} left and are trying to add ${wanted}. Untick some, or cancel or remove one you no longer need. Premium (${priceText()}) removes the limit.`;
+    return `Free plans can track ${limit()} active subscriptions. You have ${r} free ${r === 1 ? "slot" : "slots"} left and are trying to add ${wanted}. Untick some, or cancel or remove one you no longer need. Premium (${priceText()}) removes the limit.`;
   }
 
   // A card shown in place of a locked page.
@@ -98,5 +100,5 @@
     try { window.dispatchEvent(new CustomEvent("yanju:synced")); } catch (e) { /* ignore */ }
   }
 
-  window.Plans = { SELF_ID, signedIn, credits, trialUsed, until, api, refresh, tier, isPremium, isBusiness, money, can, room, canAdd, activeCount, limit, historyCutoff, usageText, limitMessage, lockCard, priceText, FEATURES };
+  window.Plans = { bonusSlots, SELF_ID, signedIn, credits, trialUsed, until, api, refresh, tier, isPremium, isBusiness, money, can, room, canAdd, activeCount, limit, historyCutoff, usageText, limitMessage, lockCard, priceText, FEATURES };
 })();
