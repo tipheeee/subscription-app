@@ -31,7 +31,7 @@ li{margin:4px 0}.fill{background:#FFF3C4;color:#16282C;padding:0 4px;border-radi
 <li><b>Your password.</b> If you sign up with email, your password is handled by our sign-in provider (Supabase). It is stored in a scrambled form and we cannot read it.</li>
 <li><b>Subscription details you add.</b> For example the service name, price, currency, billing period, renewal date, category, and any client or project name you type in. These are saved on your own device. If you sign in, they are also saved to your account in our database, so they can follow you to other devices. When you sign out, they are removed from that device but stay in your account. In your account page you can download your data or delete the saved copy.</li>
 <li><b>Reminder settings.</b> If you turn on browser notifications, we keep your device’s notification address and the reminder times you choose, so that we can send them.</li>
-<li><b>Waitlist.</b> If you join the waitlist for a paid plan, we keep your email address and the plan you chose, so we can tell you when it opens. You can ask us to remove it at any time.</li>
+<li><b>Payments.</b> If you buy a plan, Paystack takes your payment on its own page. We never see or store your card number or bank details. We keep a record of each payment (reference, amount, plan and date) and your plan and its end date on your account.</li>
 <li><b>Technical information.</b> Like any website, the services that deliver Yanju can see your IP address and browser type when your device loads the app.</li>
 </ul>
 <p>We do not ask for your bank details, card numbers or passwords to other services.</p>
@@ -53,6 +53,7 @@ li{margin:4px 0}.fill{background:#FFF3C4;color:#16282C;padding:0 4px;border-radi
 <ul>
 <li><b>Supabase</b> provides sign-in and the database where account details are stored.</li>
 <li><b>Google</b> provides “Continue with Google” sign-in. We also load small website logos from Google’s icon service, which means Google can see the website address of a service you track.</li>
+<li><b>Paystack</b> processes payments for paid plans. It sees your email address and what you paid for.</li>
 <li><b>Cloudflare</b> hosts the app and runs our small servers for alternatives and reminders.</li>
 <li><b>Exchange Rate API</b> supplies exchange rates. No personal information is sent to it.</li>
 <li><b>jsDelivr and Google Fonts</b> deliver code libraries and fonts to your browser.</li>

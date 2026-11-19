@@ -819,17 +819,28 @@
 
   // ---------- Pages ----------
   const PAGES = ["home", "dashboard", "insights", "history", "scan", "settings", "alternatives", "report", "account", "pricing"];
+  let reportUnlocked = false;   // true after spending a credit, until the person leaves the report page
+  document.addEventListener("click", async e => {
+    if (!e.target || e.target.id !== "use-credit") return;
+    const btn = e.target, say = t => { const m = $("rep-credit-msg"); if (m) m.textContent = t; };
+    btn.disabled = true; say("Unlocking your report…");
+    const r = await Plans.api("/api/report/use", { method: "POST" });
+    if (!r.ok) { btn.disabled = false; say(r.data.message || "Couldn’t use a credit. Try again."); return; }
+    reportUnlocked = true; await Plans.refresh(); renderReport();
+  });
   function renderReport() {
     const box = $("rep-body"), page = $("report"); if (!box || !page || !window.Report || !Insights.byClient || page.classList.contains("hide")) return;
+    const unlocked = Plans.can("report") || reportUnlocked;
     const repLabel = $("rep-cur") && $("rep-cur").parentNode;
-    if (repLabel) repLabel.classList.toggle("hide", !Plans.can("report"));
-    if (!Plans.can("report")) {
+    if (repLabel) repLabel.classList.toggle("hide", !unlocked);
+    if (!unlocked) {
       // Free and Premium people see an example made of invented data. Their own report is made after payment.
       const p = window.APP_CONFIG.plans, today = isoIn(0), yr = today.slice(0, 4);
       const subs = [["Canva", "design", 36000, "yearly", "Ade Bakery"], ["Google Workspace", "productivity", 7200, "monthly", "Ade Bakery"], ["Zoom", "productivity", 14000, "monthly", "Lola Studio"], ["Adobe Creative Cloud", "design", 28000, "monthly", "Lola Studio"], ["Notion", "productivity", 4800, "monthly", ""]]
         .map(([name, cat, amount, freq, client], i) => ({ id: "ex" + i, name, cat, amount, currency: "NGN", freq, date: isoIn(3 + i * 5), status: "active", use: "business", client }));
       const hist = []; subs.forEach((s, i) => { for (let m = 1; m <= 4; m++) hist.push({ id: "eh" + i + m, subId: s.id, name: s.name, type: "renewed", date: addPeriods(today, "monthly", -m), amount: s.amount, currency: "NGN", freq: s.freq, use: "business", client: s.client, cat: s.cat, at: today }); });
-      const cta = `<div class="card lock no-print"><b>Want this with your own information?</b><p style="margin:0">Your own report is made from your own subscriptions and downloaded to your device after payment. Nothing here is yours.</p><p class="note" style="margin:0">${Plans.money(p.reportPackNGN)} for ${p.reportPackSize} reports, or unlimited on the Business plan (${Plans.money(p.businessPriceNGN)} a month). Payments are opening soon.</p><div><a class="btn" href="#pricing">See plans</a></div></div>`;
+      const cr = Plans.credits();
+      const cta = `<div class="card lock no-print"><b>Want this with your own information?</b><p style="margin:0">Your own report is made from your own subscriptions and downloaded to your device. Nothing above is yours.</p><p class="note" style="margin:0">${cr ? `You have ${cr} report credit${cr > 1 ? "s" : ""}. Using one unlocks your report, with downloads, until you leave this page.` : `${Plans.money(p.reportPackNGN)} for ${p.reportPackSize} reports, or unlimited on the Business plan (${Plans.money(p.businessPriceNGN)} a month).`}</p><p class="note" id="rep-credit-msg" style="margin:0" role="status"></p><div>${cr ? `<button class="btn" id="use-credit" type="button">Use 1 report credit</button> ` : ""}<a class="btn ${cr ? "ghost" : ""}" href="#pricing">${cr ? "Buy more" : "Buy reports or a plan"}</a></div></div>`;
       window.Report.render({ el: box, Store: { load: () => subs, history: () => hist }, Insights, esc, money, fmtDate, convert, target: "NGN", cfg, today, addPeriods, fxReady: () => true, refreshFx() {}, download() {}, stamp, sample: true, sampleCta: cta });
       return;
     }
@@ -848,6 +859,7 @@
   function route() {
     const raw = (location.hash || "#home").slice(1), h = raw.split("/")[0], page = PAGES.includes(h) && $(h) ? h : "home";
     if (page !== "alternatives" && window.Alternatives) window.Alternatives.stop();
+    if (page !== "report") reportUnlocked = false;
     PAGES.forEach(p => { const pg = $(p); if (pg) pg.classList.toggle("hide", p !== page); });
     if (page === "settings") renderSettings();
     const b = $("navbtn"); b.textContent = page === "home" ? "Open dashboard" : "Home"; b.href = page === "home" ? "#dashboard" : "#home";
