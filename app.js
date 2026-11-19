@@ -869,6 +869,17 @@
   }
   addEventListener("hashchange", route); route(); refreshFx(); checkReminders();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderAll(); checkReminders(); } });
+  // After a payment, Yanju adds itself to the person's list so they are reminded before the plan ends (plans never renew by themselves).
+  addEventListener("yanju:paid", e => {
+    const d = e.detail || {};
+    if (d.kind !== "plan" || !d.plan_until || !(d.amount > 0)) return;
+    const end = new Date(d.plan_until); if (isNaN(end)) return;
+    const date = end.getFullYear() + "-" + String(end.getMonth() + 1).padStart(2, "0") + "-" + String(end.getDate()).padStart(2, "0");
+    const biz = d.plan === "business", list = Store.load(), i = list.findIndex(s => s.id === Plans.SELF_ID);
+    const row = { id: Plans.SELF_ID, name: biz ? "Yanju Business" : "Yanju Premium", plan: d.months === 1 ? "1 month" : d.months + " months", amount: d.amount, currency: "NGN", freq: d.months === 12 ? "yearly" : d.months === 3 ? "quarterly" : "monthly", date, expiry: "", status: "active", use: biz ? "business" : "personal", cat: "work", addedAt: i >= 0 ? list[i].addedAt : new Date().toISOString() };
+    if (i >= 0) list[i] = Object.assign({}, list[i], row); else list.push(row);
+    if (Store.save(list)) { Store.logEvents([evt(row, i >= 0 ? "renewed" : "added", isoIn(0))]); renderAll(); }
+  });
   addEventListener("yanju:synced", () => { renderAll(); });   // subscriptions arrived from, or were cleared for, the account
   setInterval(() => checkReminders(), 30 * 60 * 1000);
 })();

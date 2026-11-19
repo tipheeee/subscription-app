@@ -101,7 +101,7 @@
     if (!Plans.signedIn()) { banner = { title: "Sign in to see your plan.", text: "If you were charged, your plan will switch on by itself within a few minutes. Sign in to check." }; render(); return; }
     const r = await Plans.api("/api/pay/verify?reference=" + encodeURIComponent(ref));
     if (!r.ok) banner = { title: "We couldn’t confirm that payment yet.", text: (r.data.message || "") + " If you were charged, your plan will switch on by itself within a few minutes. Refresh this page to check." };
-    else if (r.data.state === "done") banner = { title: "Payment received. Thank you!", text: r.data.plan !== "free" ? `You are on ${r.data.plan === "business" ? "Business" : "Premium"}${r.data.plan_until ? " until " + fmtDay(r.data.plan_until) : ""}.` : "" };
+    else if (r.data.state === "done") { try { window.dispatchEvent(new CustomEvent("yanju:paid", { detail: r.data })); } catch (e) { /* ignore */ } banner = { title: "Payment received. Thank you!", text: (r.data.plan !== "free" ? `You are on ${r.data.plan === "business" ? "Business" : "Premium"}${r.data.plan_until ? " until " + fmtDay(r.data.plan_until) : ""}.` : "") + (r.data.kind === "plan" ? " We added it to your list so you get a reminder before it ends." : "") }; }
     else if (r.data.state === "not_paid") banner = { title: "That payment wasn’t completed.", text: "Nothing was charged. You can try again below." };
     else banner = { title: "We couldn’t match that payment.", text: "If you were charged, email yanjuhq@gmail.com with your Paystack receipt and we will fix it." };
     await Plans.refresh();

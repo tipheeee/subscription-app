@@ -37,7 +37,9 @@
   const isBusiness = () => tier() === "business";
 
   // Only active subscriptions use a free slot. Cancelled and ended ones are free to keep.
-  const activeCount = list => (list || []).filter(s => s && s.status === "active").length;
+  // The "Yanju Premium/Business" entry the app adds after a payment never uses up a free slot.
+  const SELF_ID = "yanju-self";
+  const activeCount = list => (list || []).filter(s => s && s.status === "active" && s.id !== SELF_ID).length;
   const limit = () => isPremium() ? Infinity : FREE_SUBS();
   const room = list => Math.max(0, limit() - activeCount(list));
   // Someone who already has more than the limit (for example from before plans existed) keeps all of them; they just can't add more.
@@ -96,5 +98,5 @@
     try { window.dispatchEvent(new CustomEvent("yanju:synced")); } catch (e) { /* ignore */ }
   }
 
-  window.Plans = { signedIn, credits, trialUsed, until, api, refresh, tier, isPremium, isBusiness, money, can, room, canAdd, activeCount, limit, historyCutoff, usageText, limitMessage, lockCard, priceText, FEATURES };
+  window.Plans = { SELF_ID, signedIn, credits, trialUsed, until, api, refresh, tier, isPremium, isBusiness, money, can, room, canAdd, activeCount, limit, historyCutoff, usageText, limitMessage, lockCard, priceText, FEATURES };
 })();
