@@ -1,0 +1,8 @@
+{
+  // Settings for the payments Worker. Cloudflare reads this when GitHub changes, so you never paste the code by hand.
+  "name": "yanju-payments",
+  "main": "worker-payments.js",
+  "compatibility_date": "2025-01-01",
+  // Keep the settings and secrets you added in the Cloudflare dashboard (Supabase, Paystack, Logo.dev).
+  "keep_vars": true
+}
