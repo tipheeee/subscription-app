@@ -24,6 +24,14 @@
     let site = null;
     for (const k in SITES) if (n.includes(" " + k + " ") && (!site || k.length > site.length)) site = k;
     if (site) return `<span class="logo" aria-hidden="true" data-l="${esc(letter)}" data-s="${esc(tile)}"><img alt="" width="28" height="28" src="https://www.google.com/s2/favicons?domain=${SITES[site]}&sz=64" onerror="var p=this.parentNode;p.className='logo letter';p.style.cssText=p.dataset.s;p.textContent=p.dataset.l"></span>`;
+    // No bundled logo: use one found online (or remembered), otherwise a letter. A letter tile is swapped for the logo if one turns up.
+    const OL = window.OnlineLogos, ln = OL ? OL.norm(name) : "";
+    if (OL && OL.enabled() && ln.length >= 3) {
+      const d = OL.domain(name);
+      if (d) return `<span class="logo" aria-hidden="true" data-ln="${esc(ln)}" data-l="${esc(letter)}" data-s="${esc(tile)}" style="overflow:hidden;padding:0">${OL.imgTile(d)}</span>`;
+      OL.want(name);
+      return `<span class="logo letter" aria-hidden="true" data-ln="${esc(ln)}" data-l="${esc(letter)}" data-s="${esc(tile)}" style="${tile}">${esc(letter)}</span>`;
+    }
     return `<span class="logo letter" aria-hidden="true" style="${tile}">${esc(letter)}</span>`;
   }
 
@@ -168,6 +176,7 @@
     const f = (k, label, type, extra) => `<label>${label}<input data-e="${k}" type="${type}" ${extra || ""} value="${esc(s[k] ?? "")}"></label>`;
     $("edit-form").innerHTML = `<h2 style="margin:0;font-size:20px">Edit ${esc(s.name)}</h2>
       ${f("name", "Name", "text")}${f("plan", "Plan", "text")}
+      ${window.OnlineLogos && OnlineLogos.enabled() ? `<label>Website, for the logo (optional)<input data-e="website" type="text" inputmode="url" autocapitalize="none" placeholder="for example daya.co" value="${esc(OnlineLogos.domain(s.name))}"></label><div style="display:grid;gap:8px"><button type="button" class="btn ghost" id="logo-search">Find logo</button><div id="logo-results" style="display:grid;gap:8px"></div></div>` : ""}
       <div class="two">${f("amount", "Amount", "number", 'step="any" min="0" inputmode="decimal"')}${f("currency", "Currency", "text", 'maxlength="3"')}</div>
       <label>Billed<select data-e="freq">${FREQS.map(([v, l]) => `<option value="${v}" ${s.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       ${f("date", "Next renewal", "date")}${f("expiry", "Ends / expires (leave empty if it keeps renewing)", "date")}
@@ -190,6 +199,7 @@
     let currency = v.currency.trim().toUpperCase();
     if (amount != null && !currency) currency = cfg.defaultCurrency;
     if (v.status === "active" && s.status !== "active" && !Plans.canAdd(list)) return err(`Free plans can track ${Plans.limit()} active subscriptions. Cancel or remove one first, or upgrade to Premium (${Plans.priceText()}).`);
+    if (window.OnlineLogos && "website" in v) OnlineLogos.manual(v.name.trim(), v.website);
     const oldDate = s.date, oldStatus = s.status;
     Object.assign(s, { name: v.name.trim(), plan: v.plan.trim(), amount, currency, freq: v.freq, date: v.date, expiry: v.expiry, status: v.status, use: v.use || "", client: v.use === "business" ? String(v.client || "").replace(/\s+/g, " ").trim().slice(0, 60) : "", cat: v.cat || Insights.catOf(s) });
     if (s.date !== oldDate || s.status !== oldStatus) delete s.snooze;
@@ -475,7 +485,7 @@
   // ---------- Scanner ----------
   const STATS = ["active", "cancelled", "expired"];
   let draft = [];
-  const OK_TYPES = ["image/png", "image/jpeg", "image/webp"], MAX_MB = 10;
+  const OK_TYPES = ["image/png", "image/jpeg", "image/webp"], MAX_MB = 10, MAX_IMAGES = 10;
 
   function setMsg(t, bad) { const m = $("scan-msg"); m.textContent = t; m.className = "note" + (bad ? " bad" : ""); }
 
@@ -538,10 +548,23 @@
     if (bmp.close) bmp.close();
     return ctx.getImageData(0, 0, w, h);
   }
-  function pixelsToBlob(r) {
+  // Hand the cleaned picture to the reader as it is, with no PNG save-and-reopen step in between (faster, less memory).
+  function pixelsToCanvas(r) {
     const c = document.createElement("canvas"); c.width = r.width; c.height = r.height;
     c.getContext("2d").putImageData(new ImageData(r.data, r.width, r.height), 0, 0);
-    return new Promise(res => c.toBlob(b => res(b), "image/png"));
+    return c;
+  }
+  // Screenshots that overlap (scrolling through the same list) find the same subscription twice. Keep one, fill its gaps from the other.
+  function mergeRepeats(list) {
+    const key = e => String(e.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "") + "|" + (e.amount == null ? "" : e.amount) + "|" + (e.currency || "");
+    const seen = new Map(), out = []; let merged = 0;
+    for (const e of list) {
+      const k = key(e), first = seen.get(k);
+      if (!first || !String(e.name || "").trim()) { seen.set(k, e); out.push(e); continue; }
+      for (const f of ["date", "expiry", "freq", "plan"]) if (!first[f] && e[f]) first[f] = e[f];
+      merged++;
+    }
+    return { list: out, merged };
   }
   // Tell the person when we repaired a misread ₦ sign, so they check it.
   function noteRepairs(entries, repairs) {
@@ -559,6 +582,7 @@
     if (!picked.length) return;
     const bad = picked.find(f => !OK_TYPES.includes(f.type) || f.size > MAX_MB * 1048576);
     if (bad) { ev.target.value = ""; setMsg(`“${bad.name}” can’t be used. Choose PNG, JPG or WebP images under ${MAX_MB} MB.`, true); return; }
+    if (picked.length > MAX_IMAGES) { ev.target.value = ""; setMsg(`Choose up to ${MAX_IMAGES} screenshots at a time. You can scan again for more.`, true); return; }
     $("review-wrap").classList.add("hide"); draft = [];
     setMsg("Opening your screenshot…");
     // Copy each file into memory first. Some phones lose access to a picked file if we wait.
@@ -571,7 +595,7 @@
       return;
     }
     ev.target.value = "";
-    let raw = "";
+    let raw = "", repeatsMerged = 0;
     const texts = [], repairs = [];
     let label = "";
     setMsg("Starting the text reader… (the first time can take a minute)");
@@ -586,18 +610,23 @@
       return;
     }
     try {
+      // The clean-up mode that worked on one screenshot is tried first on the next: screenshots from the same app look alike.
+      let plan = PLAN.slice();
       for (let i = 0; i < imgs.length; i++) {
         label = `Reading image ${i + 1} of ${imgs.length}…`;
         setMsg(label); await pause(30);
-        const px = await loadPixels(imgs[i].blob);
+        let px = await loadPixels(imgs[i].blob);
+        imgs[i].blob = null;                                                   // free this picture's memory as soon as it is open
         let best = null; const t0 = performance.now();
         // Try the clean-up modes in turn. Stop as soon as every subscription found has a price,
         // or (on a phone) once a usable answer exists and the time budget is used up.
-        for (const [variant, psm] of PLAN) {
+        for (const step of plan) {
+          const [variant, psm] = step;
           label = `Reading image ${i + 1} of ${imgs.length}…`; await pause(30);
-          const cleaned = await pixelsToBlob(Preprocess.run(px, variant));
+          const cleaned = pixelsToCanvas(Preprocess.run(px, variant));
           await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" });
           const res = await worker.recognize(cleaned);
+          cleaned.width = cleaned.height = 0;
           const c = Preprocess.clean((res.data && res.data.text) || "");
           let ents = []; try { ents = Parser.parse(c.text); } catch (e) { /* reported below */ }
           const score = ents.filter(x => x.amount != null).length * 2 + ents.length;
@@ -605,6 +634,7 @@
           if (ents.length && ents.every(x => x.amount != null)) break;
           if (best.score > 0 && performance.now() - t0 > (LITE ? 15000 : 40000)) break;
         }
+        px = null;
         texts.push(best.text); repairs.push(...best.repairs);
       }
     } catch (err) {
@@ -615,6 +645,7 @@
     raw = texts.join("\n\n").trim();
     try {
       texts.forEach(t => { draft = draft.concat(Parser.parse(t)); });
+      const mr = mergeRepeats(draft); draft = mr.list; repeatsMerged = mr.merged;
       noteRepairs(draft, repairs);
       draft.forEach(e => { e.use = ""; e.cat = Insights.suggestCategory(e.name); });
       Parser.markDuplicates(draft, Store.load());
@@ -630,7 +661,7 @@
       $("review").innerHTML = ""; $("save-row").classList.add("hide"); $("review-wrap").classList.remove("hide");
       return;
     }
-    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""}. Check each one before saving.`);
+    setMsg(`Found ${draft.length} possible subscription${draft.length > 1 ? "s" : ""}. Check each one before saving.` + (repeatsMerged ? ` ${repeatsMerged} repeat${repeatsMerged > 1 ? "s" : ""} from overlapping screenshots ${repeatsMerged > 1 ? "were" : "was"} merged.` : ""));
     $("save-row").classList.remove("hide"); $("review-wrap").classList.remove("hide"); renderReview();
   });
 

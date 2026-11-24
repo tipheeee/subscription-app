@@ -2,7 +2,7 @@
 // Works with different layouts (Google Play, App Store / Apple, bank alerts, receipts, plain lists).
 // Rule: if something isn't clearly in the text, leave it empty and say so.
 (function (root) {
-  const SERVICES = ["Netflix","Spotify","CapCut","Picsart","Remini","Truecaller","YouTube Premium","YouTube Music","YouTube","Apple Music","Apple TV+","Apple Arcade","iCloud+","iCloud","Apple One","Google One","Google Play Pass","Canva Pro","Canva","Adobe Creative Cloud","Adobe","Microsoft 365","Office 365","Disney+","Disney Plus","Disney Hotstar","Hotstar","Amazon Prime","Prime Video","Amazon Music","Showmax","DStv","GOtv","StarTimes","Dropbox","ChatGPT Plus","ChatGPT","OpenAI","Claude Pro","Claude","Gemini","Notion","Zoom","Slack","Audiomack","Boomplay","LinkedIn Premium","LinkedIn","Duolingo","Figma","GitHub","Deezer","Tidal","SoundCloud","HBO Max","Hulu","Paramount+","Crunchyroll","Grammarly","OneDrive","NordVPN","ExpressVPN","Surfshark","ProtonVPN","Proton","Coursera","Udemy","Skillshare","MasterClass","Headspace","Strava","Telegram Premium","Xbox Game Pass","PlayStation Plus","Twitch","Patreon","Substack","Medium","Tinder","Bumble","Evernote","Todoist","Bitwarden","1Password","Midjourney","Perplexity","Squarespace","Wix","Shopify","Mailchimp","Zapier","Trello","Asana","Cursor","X Premium"];
+  const SERVICES = ["Netflix","Spotify","CapCut","Picsart","Remini","Truecaller","YouTube Premium","YouTube Music","YouTube","Apple Music","Apple TV+","Apple Arcade","iCloud+","iCloud","Apple One","Google One","Google Play Pass","Canva Pro","Canva","Adobe Creative Cloud","Adobe","Microsoft 365","Office 365","Disney+","Disney Plus","Disney Hotstar","Hotstar","Amazon Prime","Prime Video","Amazon Music","Showmax","DStv","GOtv","StarTimes","Dropbox","ChatGPT Plus","ChatGPT","OpenAI","Claude Pro","Claude","Gemini","Notion","Zoom","Slack","Audiomack","Boomplay","LinkedIn Premium","LinkedIn","Duolingo","Figma","GitHub","Deezer","Tidal","SoundCloud","HBO Max","Hulu","Paramount+","Crunchyroll","Grammarly","OneDrive","NordVPN","ExpressVPN","Surfshark","ProtonVPN","Proton","Coursera","Udemy","Skillshare","MasterClass","Headspace","Strava","Telegram Premium","Xbox Game Pass","PlayStation Plus","Twitch","Patreon","Substack","Medium","Tinder","Bumble","Evernote","Todoist","Bitwarden","1Password","Midjourney","Perplexity","Squarespace","Wix","Shopify","Mailchimp","Zapier","Trello","Asana","Cursor","X Premium","Adobe Express","Photoshop","Lightroom","Audible","Kindle Unlimited","Scribd","Everand","Blinkist","Babbel","Rosetta Stone","Quizlet","Chegg","Calm","Peloton","Noom","Fitbit Premium","Apple Fitness+","Apple Podcasts","Apple Books","YouTube TV","Max","Discovery+","Peacock","Vimeo","Zoho","Copilot","Microsoft Copilot","Uber One","Bolt","Jumia","Roblox","Minecraft","Nintendo Switch Online","EA Play","Ubisoft+","Netflix Extra Member","Picsart Gold","Remini Pro","VSCO","Lensa","Facetune","PicsArt","Prime Video","Tubi","Viu","iROKOtv","IrokoTV","Apple iCloud","Google Workspace","Google Drive","Zoom Workplace","Loom","Miro","Linear","Airtable","ClickUp","Monday.com","Calendly","Typeform","Hootsuite","Buffer","Later","Semrush","Ahrefs","GoDaddy","Namecheap","Cloudflare","DigitalOcean","Vercel","Netlify","Heroku","Supabase","Framer","Webflow","Envato","Freepik","Storyblocks","Shutterstock","Epidemic Sound","Artlist","Splice","BandLab","Moises","Smule","VivaVideo","InShot","Kinemaster","KineMaster","Alight Motion","Videoleap","Splice","PowerDirector","FilmoraGo","Filmora","Wondershare"];
   const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const SVC = SERVICES.slice().sort((a, b) => b.length - a.length)
     .map(n => ({ n, re: new RegExp("(^|[^a-z0-9])" + esc(n) + "($|[^a-z0-9])", "i"), solo: /^[A-Za-z]{7,}$/.test(n) ? n.toLowerCase() : null }));
@@ -25,10 +25,12 @@
   }
 
   // ---------- Money ----------
-  const CODES = "NGN|USD|EUR|GBP|INR|ZAR|GHS|KES|CAD|AUD|UGX|TZS|EGP|AED|BRL|MXN";
+  const CODES = "NGN|USD|EUR|GBP|INR|ZAR|GHS|KES|CAD|AUD|NZD|UGX|TZS|EGP|AED|SAR|BRL|MXN|JPY|CNY|KRW|TRY|CHF|SEK|NOK|DKK|PLN|SGD|HKD|XOF|XAF|RWF|ZMW|MAD|PHP|IDR|THB|MYR|PKR|BDT";
+  const ZERO_DEC = /^(JPY|KRW|UGX|TZS|XOF|XAF|RWF|IDR)$/;
   const NUMSRC = "\\d{1,3}(?:[,.]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?";
-  const PRE = "₦|US\\$|\\$|€|£|₹|#|" + CODES + "|N";
-  const SYM = { "₦": "NGN", "#": "NGN", "$": "USD", "US$": "USD", "€": "EUR", "£": "GBP", "₹": "INR" };
+  const PRE = "₦|US\\$|CA\\$|C\\$|AU\\$|A\\$|NZ\\$|HK\\$|S\\$|GH₵|₵|KSh|Rs\\.?|\\$|€|£|₹|¥|₩|₺|#|" + CODES + "|N|R";
+  const SYM = { "₦": "NGN", "#": "NGN", "$": "USD", "US$": "USD", "€": "EUR", "£": "GBP", "₹": "INR", "CA$": "CAD", "C$": "CAD", "AU$": "AUD", "A$": "AUD", "NZ$": "NZD", "HK$": "HKD", "S$": "SGD", "GH₵": "GHS", "₵": "GHS", "KSH": "KES", "RS": "INR", "RS.": "INR", "¥": "JPY", "₩": "KRW", "₺": "TRY", "R": "ZAR" };
+  const SYM_NOTE = { "¥": "Read “¥” as yen (JPY). It could be Chinese yuan (CNY) — check it.", "R": "Read “R” as South African rand — check it.", "KSH": "", "RS": "Read “Rs” as Indian rupees — check it.", "RS.": "Read “Rs” as Indian rupees — check it." };
   const PER = "mo(?:nth)?|mon|yr|year|wk|week|annum";
 
   function parseNum(raw) {
@@ -38,23 +40,56 @@
     return parseFloat(int.replace(/[.,]/g, "") + (dec ? "." + dec : ""));
   }
 
+  // The reader often drops or misreads the decimal point in small text: "€10.90" can come back as "€10090" or "€1090".
+  // Foreign prices rarely have no separator and four or five digits, so we repair that and say so.
+  function fixPoint(raw, cur, noteList) {
+    const v = parseNum(raw);
+    if (!cur || cur === "NGN" || ZERO_DEC.test(cur) || !/^\d{4,5}$/.test(raw)) return v;
+    let fixed = null;
+    if (raw.length === 5 && /^\d{2}0\d{2}$/.test(raw)) fixed = raw.slice(0, 2) + "." + raw.slice(3);      // 10090 -> 10.90
+    else if (raw.length === 4 && !/00$/.test(raw)) fixed = raw.slice(0, 2) + "." + raw.slice(2);          // 1099 -> 10.99
+    else if (raw.length === 4 && /^\d0\d{2}$/.test(raw)) fixed = raw.slice(0, 1) + "." + raw.slice(2);    // 1090 -> 1.90 is rarer, left alone below
+    if (fixed && raw.length === 4 && /^\d0\d{2}$/.test(raw)) fixed = null;
+    if (!fixed) return v;
+    noteList.push("Read “" + raw + "” as " + fixed + ": the decimal point was probably misread. Check it.");
+    return parseFloat(fixed);
+  }
+
   function findAmounts(text) {
     const out = [];
+    const notePush = (o, n) => { if (n) o.note = o.note ? o.note + " " + n : n; };
     const r1 = new RegExp("(?:^|[^A-Za-z])(" + PRE + ")\\s?(" + NUMSRC + ")(?!\\d)", "gi");
     for (const m of text.matchAll(r1)) {
       const p = m[1].toUpperCase(); let cur, note = "";
       if (SYM[p] || SYM[m[1]]) {
         cur = SYM[m[1]] || SYM[p];
         if (p === "$") note = "Currency assumed to be USD from the $ sign — check it.";
-        if (p === "#") note = "Read “#” as naira — check it.";
+        else if (p === "#") note = "Read “#” as naira — check it.";
+        else if (SYM_NOTE[p]) note = SYM_NOTE[p];
       } else if (p === "N") { cur = "NGN"; note = "Read “N” as naira — check it."; }
       else cur = p;
-      out.push({ value: parseNum(m[2]), currency: cur, note, at: m.index });
+      let raw = m[2];
+      // "€10 90" (the reader put a space where the decimal point was)
+      if (cur !== "NGN" && !ZERO_DEC.test(cur) && /^\d{1,3}$/.test(raw)) {
+        const tail = text.slice(m.index + m[0].length).match(new RegExp("^[ ](\\d{2})(?!\\d|\\s*(?:" + MON + ")\\b)", "i"));
+        if (tail) { raw = raw + "." + tail[1]; note = (note ? note + " " : "") + "Read “" + m[2] + " " + tail[1] + "” as " + raw + " — check it."; }
+      }
+      const o = { value: 0, currency: cur, note: "", at: m.index };
+      const pts = []; o.value = fixPoint(raw, cur, pts); notePush(o, note); pts.forEach(n => notePush(o, n));
+      out.push(o);
     }
-    const r2 = new RegExp("(?:^|[^\\d.,])(" + NUMSRC + ")\\s?(" + CODES + ")(?![A-Za-z])", "gi");
+    // Price first, symbol or code after: "10,90 €", "59 GHS"
+    const r2 = new RegExp("(?:^|[^\\d.,])(" + NUMSRC + ")\\s?(" + CODES + "|€|£|\\$|₦|₹)(?![A-Za-z])", "gi");
     for (const m of text.matchAll(r2)) {
       if (out.some(o => Math.abs(o.at - m.index) < 3)) continue;
-      out.push({ value: parseNum(m[1]), currency: m[2].toUpperCase(), note: "", at: m.index });
+      const u = m[2].toUpperCase();
+      out.push({ value: parseNum(m[1]), currency: SYM[u] || SYM[m[2]] || u, note: "", at: m.index });
+    }
+    // The reader sometimes turns "€" into "C" or "E": "C10.90"
+    const r4 = /(?:^|[^A-Za-z0-9])([CE])(\d{1,3}[.,]\d{2})(?!\d)/gi;
+    for (const m of text.matchAll(r4)) {
+      if (out.some(o => Math.abs(o.at - m.index) < 3)) continue;
+      out.push({ value: parseNum(m[2]), currency: "EUR", note: "Read “" + m[1] + "” as the euro sign — check it.", at: m.index });
     }
     // "4,400/month" with no currency shown
     const r3 = new RegExp("(?:^|[^\\d.,A-Za-z])(" + NUMSRC + ")\\s?(?:\\/|per\\s)\\s?(?:" + PER + ")\\b", "gi");
@@ -78,9 +113,9 @@
     let m;
     const ok = (iso, note) => validIso(iso) ? { iso, note: note || "" } : null;
     if ((m = line.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))) return ok(m[0]);
-    if ((m = line.match(new RegExp("\\b(\\d{1,2})(?:st|nd|rd|th)?[\\s\\-\\/]+(" + MON + ")\\.?,?[\\s\\-\\/]+(\\d{4})\\b", "i"))))
+    if ((m = line.match(new RegExp("\\b(\\d{1,2})(?:st|nd|rd|th)?[\\s\\-\\/]+(" + MON + ")\\.?,?[\\s\\-\\/]*(\\d{4})\\b", "i"))))
       return ok(`${m[3]}-${pad(mnum(m[2]))}-${pad(+m[1])}`);
-    if ((m = line.match(new RegExp("\\b(" + MON + ")\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b", "i"))))
+    if ((m = line.match(new RegExp("\\b(" + MON + ")\\.?\\s*(\\d{1,2})(?:st|nd|rd|th)?,?\\s*(\\d{4})\\b", "i"))))
       return ok(`${m[3]}-${pad(mnum(m[1]))}-${pad(+m[2])}`);
     if ((m = line.match(/\b(\d{1,2})[\/.](\d{1,2})[\/.](\d{4}|\d{2})\b/))) {
       const a = +m[1], b = +m[2], y = m[3].length === 2 ? "20" + m[3] : m[3];
@@ -106,6 +141,7 @@
   }
 
   // ---------- Billing period, plan, status ----------
+  const FREQ_OK = /^(weekly|monthly|quarterly|yearly)$/;
   const FREQ = [
     ["quarterly", /\bquarter(?:ly)?\b|every\s+3\s+months|\b3\s*months?\b|\/\s?qtr\b/i],
     ["yearly", /\byear(?:ly)?\b|\bannual(?:ly)?\b|\/\s?yr\b|\bper\s+annum\b|every\s+12\s+months|\b12\s*months?\b/i],
@@ -120,13 +156,16 @@
   const EXPIRY_RE = /expir|\bends?\b|\bending\b|until|valid\s+(?:till|until|through)|cancels?\s+on/i;
   const RENEW_RE = /renew|next|billing|charge|due|pay/i;
   const CANCEL_RE = /\bcancel(?:l)?ed\b|\bnot renewing\b|\bwill not renew\b|auto[- ]?renew\s+(?:is\s+)?off|renewal\s+off/i;
+  const RECEIPT_RE = /order\s*(?:number|no\.?|id|date)|\breceipt\b|\binvoice\b|thank you for your (?:purchase|order|subscription|payment)|payment (?:successful|received)|\bsub\s?total\b/i;
+  const SKIP_RE = /^(sub\s?total|tax|vat|gst|discount|shipping|service fee|processing fee|tip|balance)\b/i;
+  const GRAND_RE = /^(?:grand\s)?total\b|^amount\s+(?:paid|due|charged)\b/i;
   const PAST_RE = /\b(debit|debited|paid|charged|purchase|receipt|transaction|successful|payment of)\b/i;
   const SECTION_RE = /^(active|expired|inactive|cancelled|canceled)(\s+subscriptions?)?:?$/i;
   const EXPIRED_RE = /\bexpired\b|\bended\b/i;
-  const NOISE = /^(subscriptions?|manage|payments?|payment methods?|billing|renews?|renewal|expires?|expired|cancel|cancelled|canceled|active|inactive|settings|google play|app store|apple id|account|total|price|amount|date|next|due|history|order|receipt|transactions?|status|monthly|yearly|weekly|quarterly|auto|edit|done|back|search|today|yesterday|more|view|see all|help|free trial|alerts?|resubscribe|primary|backup|not available|your subscription|family sharing|bank|debit|credit|card|visa|mastercard|verve|balance|alert|your|you|the|resubscribe|alerts?|primary|backup|not available|manage|payment method|verve)\b/i;
+  const NOISE = /^(subscriptions?|manage|payments?|payment methods?|billing|renews?|renewal|expires?|expired|cancel|cancelled|canceled|active|inactive|settings|google play|app store|apple id|account|total|price|amount|date|next|due|history|order|receipt|transactions?|status|monthly|yearly|weekly|quarterly|auto|edit|done|back|search|today|yesterday|more|view|see all|help|free trial|alerts?|resubscribe|primary|backup|not available|your subscription|family sharing|bank|debit|credit|card|visa|mastercard|verve|balance|alert|your|you|the|resubscribe|alerts?|primary|backup|not available|manage|payment method|verve|thank you|thanks|order|sub\s?total|grand total|tax|vat|gst|item|items|qty|quantity|discount|shipping|invoice|summary|details|hello|hi|hey|dear|reference|ref|transaction|card ending|google commerce|google payments?|itunes|apple distribution|you can|if you|for any|questions|contact|support|terms|privacy|unsubscribe|sent|receipt number|document|billed to|report a problem|learn more|view in|visa|amount paid|amount due|date|number|method)\b/i;
 
   const shortName = n => { const t = n.split(/\s*[:\u2013\u2014|]\s+|\s+-\s+/)[0].trim(); return t.length >= 2 ? t : n; };
-  const clean = l => l.replace(/[|•·›>]+/g, " ").replace(/\s+/g, " ").trim().replace(/^[^A-Za-z0-9₦$€£₹#+]+/, "").replace(/^[€£$#₦₹]\s+(?=[A-Za-z])/, "").trim();
+  const clean = l => l.replace(/[|•·›>]+/g, " ").replace(/\s+/g, " ").trim().replace(/^[^A-Za-z0-9₦$€£₹¥₩₺₵#+]+/, "").replace(/^[€£$#₦₹¥₩₺₵]\s+(?=[A-Za-z])/, "").trim();
 
   const onlyPlanWords = l => { const w = l.toLowerCase().match(/[a-z]+/g) || []; return w.length > 0 && w.every(x => PLAN_SET.has(x)); };
   function looksLikeName(line) {
@@ -138,7 +177,18 @@
     return /[A-Za-z]{3,}/.test(line);
   }
 
-  function buildEntry(name, lines, section) {
+  // From a payment date, add one billing period at a time until the date is today or later.
+  function nextFrom(iso, freq) {
+    const t = todayStart(); const d = new Date(iso + "T00:00:00Z"); const day = d.getUTCDate();
+    for (let i = 0; i < 600 && new Date(isoOfUtc(d) + "T00:00:00") < t; i++) {
+      if (freq === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+      else { const m = freq === "yearly" ? 12 : freq === "quarterly" ? 3 : 1; d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + m); d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate())); }
+    }
+    return isoOfUtc(d);
+  }
+  const isoOfUtc = d => d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate());
+
+  function buildEntry(name, lines, section, topDate) {
     const block = lines.join(" \n ");
     const notes = [];
     const e = { include: true, name, plan: "", amount: null, currency: "", freq: "", date: "", expiry: "", status: "active", notes };
@@ -160,17 +210,22 @@
     e.freq = findFreq(block);
     if (!e.freq) notes.push("Billing period (monthly, yearly…) not found.");
 
-    let dateNoted = false;
+    let dateNoted = false, pastIso = "";
     for (const line of lines) {
       const d = findDate(line);
       if (!d) continue;
       const slot = EXPIRY_RE.test(line) && !RENEW_RE.test(line) ? "expiry" : "date";
       if (slot === "date" && PAST_RE.test(block) && !/renew|next|upcoming|due/i.test(line)) {
-        notes.push("This looks like a payment that already happened on " + d.iso + ". Enter the next renewal date yourself.");
+        if (!pastIso) pastIso = d.iso;
         dateNoted = true; continue;
       }
       if (!e[slot]) { e[slot] = d.iso; if (d.note) notes.push(d.note); }
       dateNoted = true;
+    }
+    if (!pastIso && !e.date && topDate) { pastIso = topDate; dateNoted = true; }
+    if (pastIso && !e.date) {
+      if (FREQ_OK.test(e.freq)) { e.date = nextFrom(pastIso, e.freq); notes.push("This looks like a payment made on " + pastIso + ". We estimated the next charge as " + e.date + " (one billing period later). Check it."); }
+      else notes.push("This looks like a payment that already happened on " + pastIso + ". Enter the next renewal date yourself.");
     }
     if (!dateNoted) notes.push("No renewal date found.");
 
@@ -191,13 +246,18 @@
   function parse(text) {
     const lines = String(text || "").split(/\r?\n/).map(clean).filter(l => l.length > 1);
     const blocks = [];
-    let cur = null, section = "";
+    let cur = null, section = "", skipAmt = false;
     const push = () => { if (cur) { cur.section = cur.section == null ? section : cur.section; blocks.push(cur); } cur = null; };
     for (const line of lines) {
       const sm = line.match(SECTION_RE);
       // A lone "Cancelled" under an app that has no price/date yet is that app's status, not a section heading.
       if (sm && cur && !cur.hasAmt && !cur.lines.some(l => findDate(l))) { cur.lines.push(line); continue; }
       if (sm) { push(); const k = sm[1].toLowerCase(); section = k === "expired" || k === "inactive" ? "expired" : k === "active" ? "" : "cancelled"; continue; }
+      // Subtotal, Tax, VAT...: never a subscription. If the label sits alone, the amount on the next line belongs to it too.
+      if (skipAmt && !findService(line) && findAmounts(line).length && !/[A-Za-z]{4,}/.test(line.replace(/\/?\s*(?:month|year|week)\w*/i, ""))) { skipAmt = false; continue; }
+      skipAmt = false;
+      if (SKIP_RE.test(line) && !GRAND_RE.test(line)) { skipAmt = !findAmounts(line).length; continue; }
+      if (GRAND_RE.test(line)) { if (cur && !cur.hasAmt && findAmounts(line).length) { cur.lines.push(line); cur.hasAmt = true; } else if (!findAmounts(line).length) skipAmt = true; continue; }
       const svc = findService(line);
       const amts = findAmounts(line);
       if (svc) {
@@ -219,9 +279,15 @@
     }
     push();
     // Names we don't recognise only count if there's a price or a date with them.
+    const receipt = RECEIPT_RE.test(String(text || ""));
+    // A receipt usually shows its date once, near the top ("Order date: Nov 3, 2026").
+    let topDate = "";
+    if (receipt) for (const l of lines) { if (/order\s*date|^date\b|\bpaid on|purchased|\bbilled\b/i.test(l)) { const d = findDate(l); if (d) { topDate = d.iso; break; } } }
     return blocks
       .filter(b => b.hasAmt || b.lines.some(l => findDate(l)))
-      .map(b => buildEntry(b.known || b.fixed ? b.name : pickName(b), b.lines, b.section));
+      // In a receipt or email, an app we don't know is only kept if it has a price AND a billing period next to it.
+      .filter(b => !receipt || b.known || (b.hasAmt && findFreq(b.lines.join(" "))))
+      .map(b => buildEntry(b.known || b.fixed ? b.name : pickName(b), b.lines, b.section, topDate));
   }
 
   // ---------- Duplicates ----------
